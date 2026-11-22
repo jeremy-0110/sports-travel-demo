@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}體育賽事旅遊規劃與代訂系統{% endblock %}</title>
+  <link rel="icon" href="data:," />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-50 text-slate-800">
+  <header class="{% if active_role == 'agent' %}bg-emerald-900{% else %}bg-slate-900{% endif %} text-white shadow-md transition-colors">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <a href="/" class="text-lg font-bold tracking-wide hover:text-amber-300 transition">
+          體育賽事旅遊規劃與代訂系統
+        </a>
+        {% if active_role == 'agent' %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/40">
+            訂票專員視角 · {{ active_agent.agent_id if active_agent else 'AG001' }}
+          </span>
+        {% else %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/40">
+            會員視角
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <form action="/switch-role" method="post" class="inline-flex items-center">
+          {% if active_role == 'agent' %}
+            <input type="hidden" name="role" value="member" />
+            <button
+              type="submit"
+              id="role-switch-btn"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-white text-emerald-900 hover:bg-emerald-50 shadow-sm transition cursor-pointer"
+            >
+              切換回會員視角
+            </button>
+          {% else %}
+            <input type="hidden" name="role" value="agent" />
+            <input type="hidden" name="agent_id" value="AG001" />
+            <button
+              type="submit"
+              id="role-switch-btn"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-400 text-slate-900 hover:bg-amber-300 shadow-sm transition cursor-pointer"
+            >
+              切換至專員視角 (AG001)
+            </button>
+          {% endif %}
+        </form>
+
+        <div class="h-5 w-px bg-white/20 hidden sm:block"></div>
+
+        {% if current_user %}
+          <div class="flex items-center gap-2 text-sm">
+            <span class="text-slate-200">
+              你好，<strong class="text-white">{{ current_user.full_name }}</strong>
+            </span>
+            <form action="/logout" method="post" class="inline">
+              <button
+                type="submit"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+              >
+                登出
+              </button>
+            </form>
+          </div>
+        {% else %}
+          <div class="flex items-center gap-2 text-sm">
+            <a
+              href="/login"
+              class="px-3 py-1.5 rounded-lg font-medium bg-white/10 hover:bg-white/20 text-white transition"
+            >
+              會員登入
+            </a>
+            <a
+              href="/register"
+              class="px-3 py-1.5 rounded-lg font-medium bg-sky-500 hover:bg-sky-400 text-white transition"
+            >
+              免費註冊
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8">
+    {% if flash %}
+      <div
+        role="alert"
+        class="mb-6 rounded-xl px-4 py-3 text-sm font-medium border {% if flash.category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% elif flash.category == 'error' %}bg-rose-50 border-rose-200 text-rose-800{% else %}bg-sky-50 border-sky-200 text-sky-800{% endif %}"
+      >
+        {{ flash.message }}
+      </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-t border-slate-200 bg-white">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+      <p>支援賽事範圍：北美（MLB、NBA）與歐洲（足球五大聯賽、歐冠）</p>
+      <p>課程展示 Demo 模式 · 模擬金流與站內通知信箱 · 一口價無訂金流程</p>
+    </div>
+  </footer>
+</body>
+</html>

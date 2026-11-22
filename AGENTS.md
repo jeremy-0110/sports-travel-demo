@@ -9,7 +9,10 @@
 ## 2. 技術棧限制
 - 後端：Python FastAPI + SQLite (SQLAlchemy/SQLModel)
 - 前端：Jinja2 HTML + Tailwind CSS (CDN)
-- LLM：使用 `google-genai` 呼叫免費 Gemini API (`gemini-2.5-flash`) 並啟用 Google Search Grounding；若無 API Key 或配額用盡，須有優雅的 Mock Fallback 機制避免網站崩潰。
+- LLM 與連網搜尋：
+  - 使用 `google-genai` 呼叫免費 Gemini API (`gemini-4-hydrogen`)。
+  - **免費連網搜尋架構**：使用免費搜尋工具（如 `ddgs` 套件指定搜尋 mlb.com / nba.com / espn.com / uefa.com 等權威來源）抓取即時賽程摘要後，再交由 `gemini-4-hydrogen` 規劃行程大架構。
+  - **展示防呆機制**：若無 API Key、免費額度達上限或網路連線異常，必須自動切換至內建的高擬真 Mock 資料保底，確保展示時網站絕對不會報錯崩潰。
 - 禁止將 `.env` 或 API Key 寫死在程式碼中。
 
 ## 3. 開發與回朔保障規則 (強制執行)

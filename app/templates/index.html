@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if active_role == 'agent' %}訂票專員工作台 ({{ active_agent.agent_id if active_agent else 'AG001' }}) - 體育賽事旅遊規劃與代訂系統{% else %}會員首頁 - 體育賽事旅遊規劃與代訂系統{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if active_role == 'agent' %}
+  <section class="space-y-6">
+    <div class="bg-gradient-to-r from-emerald-800 to-teal-700 text-white rounded-2xl p-6 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <span class="inline-block text-xs uppercase tracking-wider font-semibold bg-white/15 px-2.5 py-1 rounded-md mb-2">
+            Agent Workbench · 訂票專員工作台
+          </span>
+          <h1 class="text-2xl font-bold">
+            歡迎值班，專員 {{ active_agent.agent_id if active_agent else 'AG001' }}（{{ active_agent.agent_name if active_agent else '王小明' }}）
+          </h1>
+          <p class="text-emerald-100 text-sm mt-1">
+            專員負責審核會員行程需求、開立「一口價報價單（無訂金）」、核發類 Agoda 訂票憑證與處理訂票異常。
+          </p>
+        </div>
+
+        {% if agents|length > 1 %}
+          <form action="/switch-role" method="post" class="bg-white/10 rounded-xl p-3 flex items-center gap-2">
+            <input type="hidden" name="role" value="agent" />
+            <label for="agent_id" class="text-xs font-medium text-emerald-100">切換值班專員：</label>
+            <select
+              id="agent_id"
+              name="agent_id"
+              class="rounded-lg bg-white text-slate-800 text-sm px-2.5 py-1.5 font-medium"
+            >
+              {% for ag in agents %}
+                <option value="{{ ag.agent_id }}" {% if active_agent and ag.agent_id == active_agent.agent_id %}selected{% endif %}>
+                  {{ ag.agent_id }} - {{ ag.agent_name }}
+                </option>
+              {% endfor %}
+            </select>
+            <button
+              type="submit"
+              class="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 text-xs font-semibold transition cursor-pointer"
+            >
+              套用
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <p class="text-xs font-medium text-slate-500">系統註冊會員數 (D1)</p>
+        <p class="text-3xl font-bold text-slate-900 mt-1">{{ users_count }}</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <p class="text-xs font-medium text-slate-500">啟用訂票專員數</p>
+        <p class="text-3xl font-bold text-emerald-700 mt-1">{{ agents_count }}</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <p class="text-xs font-medium text-slate-500">會員行程架構總數 (D2)</p>
+        <p class="text-3xl font-bold text-sky-700 mt-1">{{ trips_count }}</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-900">全站會員行程需求清單 (D2 預覽)</h2>
+        <span class="text-xs text-slate-500">將於 Phase 3 串接「開立一口價報價單」作業</span>
+      </div>
+      {% if all_trips %}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="px-6 py-3">行程編號</th>
+                <th class="px-6 py-3">會員 ID</th>
+                <th class="px-6 py-3">賽事聯賽</th>
+                <th class="px-6 py-3">旅遊區間</th>
+                <th class="px-6 py-3">機票 / 飯店需求</th>
+                <th class="px-6 py-3">狀態</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for trip in all_trips %}
+                <tr class="hover:bg-slate-50">
+                  <td class="px-6 py-3 font-semibold text-slate-900">#{{ trip.trip_id }}</td>
+                  <td class="px-6 py-3 text-slate-600">User #{{ trip.user_id }}</td>
+                  <td class="px-6 py-3">
+                    <span class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 font-medium text-xs">{{ trip.league_type }}</span>
+                  </td>
+                  <td class="px-6 py-3 text-slate-700">{{ trip.start_date }} ~ {{ trip.end_date }}</td>
+                  <td class="px-6 py-3 text-slate-600">
+                    機票：{{ '需要' if trip.need_flight else '自理' }} ／
+                    飯店：{{ '需要' if trip.need_hotel else '自理' }}
+                  </td>
+                  <td class="px-6 py-3">
+                    <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-xs font-semibold">{{ trip.status }}</span>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="px-6 py-8 text-center text-sm text-slate-500">目前尚無會員建立行程需求。</p>
+      {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs font-semibold text-emerald-700 mb-1">DFD 3.0 · 專員報價管理</div>
+        <h3 class="font-bold text-slate-900">一口價報價單（無訂金）</h3>
+        <p class="text-xs text-slate-500 mt-1">針對確認後的行程架構與景點加購需求，開立正式一口價報價。</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs font-semibold text-emerald-700 mb-1">DFD 5.0 · 真人代訂核發</div>
+        <h3 class="font-bold text-slate-900">核發類 Agoda 訂票憑證</h3>
+        <p class="text-xs text-slate-500 mt-1">會員全額付款後，由專員開立球票、機票、飯店與景點憑證。</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs font-semibold text-emerald-700 mb-1">DFD 5.0 · 異常處理流程</div>
+        <h3 class="font-bold text-slate-900">售罄／票價異動回報</h3>
+        <p class="text-xs text-slate-500 mt-1">提供替代席次方案或協助觸發全額模擬退款。</p>
+      </div>
+    </div>
+  </section>
+
+{% else %}
+  <section class="space-y-8">
+    <div class="bg-gradient-to-br from-slate-900 via-sky-900 to-indigo-900 text-white rounded-2xl p-8 shadow-md">
+      <div class="max-w-3xl">
+        <span class="inline-block text-xs font-semibold tracking-wider uppercase bg-sky-400/20 text-sky-200 px-3 py-1 rounded-full mb-3">
+          Sports Travel Planner · 會員專區
+        </span>
+        {% if current_user %}
+          <h1 class="text-2xl sm:text-3xl font-bold">
+            歡迎回來，{{ current_user.full_name }}！準備好規劃下一趟觀賽之旅了嗎？
+          </h1>
+          <p class="text-sky-100 text-sm sm:text-base mt-2">
+            您目前以會員身分（{{ current_user.email }}）登入。系統支援即時賽程搜尋與 Gemini 大架構規劃，並由專屬訂票專員（如 AG001）提供一口價代訂服務。
+          </p>
+        {% else %}
+          <h1 class="text-2xl sm:text-3xl font-bold">
+            跨國體育賽事旅遊規劃與真人代訂系統
+          </h1>
+          <p class="text-sky-100 text-sm sm:text-base mt-2">
+            專注北美與歐洲頂級職業聯賽！填寫觀賽需求後，由 AI 連網彙整賽程大架構，再交由訂票專員開立「一口價報價單（無訂金）」，全額付款後立即解鎖免費空檔旅遊行程。
+          </p>
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <a
+              href="/login"
+              class="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold text-sm shadow transition"
+            >
+              立即登入體驗（附 Demo 帳號）
+            </a>
+            <a
+              href="/register"
+              class="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm border border-white/20 transition"
+            >
+              註冊新會員
+            </a>
+          </div>
+          <p class="text-xs text-sky-200 mt-3">
+            展示帳號：<code class="bg-black/30 px-1.5 py-0.5 rounded">demo@example.com</code> ／
+            密碼：<code class="bg-black/30 px-1.5 py-0.5 rounded">demo1234</code>
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-bold text-slate-900">支援賽事範圍（嚴格驗證）</h2>
+        <span class="text-xs text-slate-500">僅受理以下四大賽事體系</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div class="text-xs font-bold text-sky-600">北美職棒</div>
+          <h3 class="text-base font-bold text-slate-900 mt-1">MLB 美國職棒大聯盟</h3>
+          <p class="text-xs text-slate-500 mt-1">資料來源：mlb.com / espn.com</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div class="text-xs font-bold text-orange-600">北美職籃</div>
+          <h3 class="text-base font-bold text-slate-900 mt-1">NBA 美國職業籃球聯賽</h3>
+          <p class="text-xs text-slate-500 mt-1">資料來源：nba.com / espn.com</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div class="text-xs font-bold text-emerald-600">歐洲職業足球</div>
+          <h3 class="text-base font-bold text-slate-900 mt-1">歐洲足球五大聯賽</h3>
+          <p class="text-xs text-slate-500 mt-1">英超、西甲、義甲、德甲、法甲</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div class="text-xs font-bold text-indigo-600">歐洲最高殿堂</div>
+          <h3 class="text-base font-bold text-slate-900 mt-1">UEFA 歐洲冠軍聯賽</h3>
+          <p class="text-xs text-slate-500 mt-1">資料來源：uefa.com / espn.com</p>
+        </div>
+      </div>
+    </div>
+
+    {% if current_user %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h2 class="text-base font-bold text-slate-900">我的行程與大架構 (D2)</h2>
+          <span class="text-xs text-slate-500">Phase 2 將開放「新增需求 &amp; AI 規劃」</span>
+        </div>
+        {% if user_trips %}
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+              <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+                <tr>
+                  <th class="px-6 py-3">行程編號</th>
+                  <th class="px-6 py-3">賽事聯賽</th>
+                  <th class="px-6 py-3">旅遊日期</th>
+                  <th class="px-6 py-3">代訂項目</th>
+                  <th class="px-6 py-3">目前狀態</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                {% for trip in user_trips %}
+                  <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-3 font-semibold text-slate-900">#{{ trip.trip_id }}</td>
+                    <td class="px-6 py-3">
+                      <span class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 font-medium text-xs">{{ trip.league_type }}</span>
+                    </td>
+                    <td class="px-6 py-3 text-slate-700">{{ trip.start_date }} ~ {{ trip.end_date }}</td>
+                    <td class="px-6 py-3 text-slate-600">
+                      球賽門票{% if trip.need_flight %} ＋ 機票{% endif %}{% if trip.need_hotel %} ＋ 飯店{% endif %}
+                    </td>
+                    <td class="px-6 py-3">
+                      <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">{{ trip.status }}</span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="px-6 py-8 text-center text-sm text-slate-500">您目前尚未建立賽事旅遊需求。</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-6">
+      <h2 class="text-base font-bold text-slate-900 mb-4">系統完整商業流程藍圖</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <div class="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div class="font-bold text-slate-900">1. 需求收集 &amp; AI 大架構</div>
+          <p class="text-xs text-slate-600 mt-1">搜尋權威賽程網站後，由 Gemini 產生旅遊大架構並讓會員確認。</p>
+        </div>
+        <div class="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div class="font-bold text-slate-900">2. 一口價報價 &amp; 全額模擬付款</div>
+          <p class="text-xs text-slate-600 mt-1">訂票專員 AG001 開立無訂金一口價報價單，會員一次付清。</p>
+        </div>
+        <div class="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div class="font-bold text-slate-900">3. 憑證核發 &amp; 解鎖空檔行程</div>
+          <p class="text-xs text-slate-600 mt-1">核發類 Agoda 訂票憑證，付款後自動解鎖免費空檔與景點加購。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}
