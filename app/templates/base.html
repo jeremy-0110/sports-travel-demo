@@ -26,6 +26,15 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
+        {% if active_role != 'agent' %}
+          <a
+            href="/trips/new"
+            class="px-3 py-1.5 rounded-lg text-sm font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 border border-sky-400/30 transition"
+          >
+            規劃新行程
+          </a>
+        {% endif %}
+
         <form action="/switch-role" method="post" class="inline-flex items-center">
           {% if active_role == 'agent' %}
             <input type="hidden" name="role" value="member" />

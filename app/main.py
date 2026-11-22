@@ -18,6 +18,7 @@ from app.config import BASE_DIR, SESSION_SECRET_KEY, SUPPORTED_LEAGUES
 from app.database import get_db, init_db
 from app.models import Agent, TripPlan, User
 from app.routers.auth import router as auth_router
+from app.routers.trips import router as trips_router
 
 
 @asynccontextmanager
@@ -42,6 +43,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 app.state.templates = templates
 
 app.include_router(auth_router)
+app.include_router(trips_router)
 
 
 @app.get("/health")

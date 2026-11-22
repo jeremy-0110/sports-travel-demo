@@ -5,42 +5,23 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.auth import (
-    get_active_agent,
-    get_active_role,
+    build_nav_context,
     get_current_user,
     hash_password,
-    pop_flash,
     set_flash,
     verify_password,
 )
-from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
+from app.config import DEFAULT_AGENT_ID
 from app.database import get_db
 from app.models import Agent, User
 
 router = APIRouter()
 
 
-def _base_context(request: Request, db: Session) -> dict:
-    """Build shared template context for auth and navigation."""
-    return {
-        "current_user": get_current_user(request, db),
-        "active_role": get_active_role(request),
-        "active_agent": get_active_agent(request, db),
-        "agents": (
-            db.query(Agent)
-            .filter(Agent.is_active.is_(True))
-            .order_by(Agent.agent_id)
-            .all()
-        ),
-        "flash": pop_flash(request),
-        "supported_leagues": SUPPORTED_LEAGUES,
-    }
-
-
 @router.get("/register", response_class=HTMLResponse)
 def register_page(request: Request, db: Session = Depends(get_db)):
     """Render the member registration page."""
-    context = _base_context(request, db)
+    context = build_nav_context(request, db)
     context.update({"error": None, "form_data": {}})
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -74,7 +55,7 @@ def register_submit(
         error = "此電子信箱已經註冊過，請直接登入或改用其他信箱。"
 
     if error is not None:
-        context = _base_context(request, db)
+        context = build_nav_context(request, db)
         context.update(
             {
                 "error": error,
@@ -111,7 +92,7 @@ def register_submit(
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db: Session = Depends(get_db)):
     """Render the member login page."""
-    context = _base_context(request, db)
+    context = build_nav_context(request, db)
     context.update({"error": None, "email": ""})
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -132,7 +113,7 @@ def login_submit(
     user = db.query(User).filter(User.email == email).first()
 
     if user is None or not verify_password(password, user.password_hash):
-        context = _base_context(request, db)
+        context = build_nav_context(request, db)
         context.update(
             {
                 "error": "電子信箱或密碼不正確，請再試一次。",

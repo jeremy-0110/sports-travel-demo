@@ -7,7 +7,7 @@ import os
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from app.config import DEFAULT_AGENT_ID
+from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
 from app.models import Agent, User
 
 
@@ -89,3 +89,20 @@ def pop_flash(request: Request) -> dict[str, str] | None:
     if isinstance(flash, dict) and "message" in flash:
         return flash
     return None
+
+
+def build_nav_context(request: Request, db: Session) -> dict:
+    """Build shared navigation, session, and perspective context for templates."""
+    return {
+        "current_user": get_current_user(request, db),
+        "active_role": get_active_role(request),
+        "active_agent": get_active_agent(request, db),
+        "agents": (
+            db.query(Agent)
+            .filter(Agent.is_active.is_(True))
+            .order_by(Agent.agent_id)
+            .all()
+        ),
+        "flash": pop_flash(request),
+        "supported_leagues": SUPPORTED_LEAGUES,
+    }

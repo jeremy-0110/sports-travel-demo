@@ -1,0 +1,699 @@
+{% extends "base.html" %}
+
+{% block title %}行程 #{{ trip.trip_id }} 大架構規劃 - 體育賽事旅遊規劃與代訂系統{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between gap-3">
+    <a href="/" class="text-sm text-slate-600 hover:text-slate-900 font-medium">← 返回首頁</a>
+    <span class="text-xs text-slate-500">行程編號 #{{ trip.trip_id }}</span>
+  </div>
+
+  {% if active_role == 'agent' %}
+    <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-900 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <strong>訂票專員視角 ({{ active_agent.agent_id if active_agent else 'AG001' }}) 預覽：</strong>
+        此筆需求由會員 {% if trip_owner %}{{ trip_owner.full_name }}（{{ trip_owner.email }}）{% else %}User #{{ trip.user_id }}{% endif %} 建立，目前行程狀態為 <strong>{{ trip.status }}</strong>。Phase 3 將開放專員於此開立「一口價報價單（無訂金）」。
+      </div>
+      <form
+        action="/trips/{{ trip.trip_id }}/delete"
+        method="post"
+        onsubmit="return confirm('確定要永久刪除此筆行程與關聯訂單嗎？');"
+      >
+        <button
+          type="submit"
+          class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+        >
+          專員刪單
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <span class="px-2.5 py-0.5 rounded-md bg-sky-50 text-sky-700 text-xs font-bold">{{ trip.league_type }}</span>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if trip.status == 'CONFIRMED' %}bg-emerald-100 text-emerald-800{% elif trip.status == 'LOCKED' %}bg-indigo-100 text-indigo-800{% elif trip.status == 'CANCELLED' %}bg-rose-100 text-rose-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+            狀態：{{ trip.status }}
+          </span>
+          {% if draft %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if draft.mode == 'gemini' %}bg-indigo-50 text-indigo-700 border border-indigo-200{% else %}bg-slate-100 text-slate-700 border border-slate-200{% endif %}">
+              {{ draft.mode_label }}
+            </span>
+            {% if draft.is_cross_continent %}
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                跨洲行程（北美 ↔ 歐洲）
+              </span>
+            {% endif %}
+          {% endif %}
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900">
+          {{ trip.league_type }} 觀賽旅遊大架構（{{ trip.start_date }} ~ {{ trip.end_date }}）
+        </h1>
+        <p class="text-xs text-slate-500 mt-1">
+          代訂項目：賽事門票{% if trip.need_flight %} ＋ 來回機票{% endif %}{% if trip.need_hotel %} ＋ 住宿飯店{% endif %}
+          {% if draft and draft.preference %} · 偏好：{{ draft.preference }}{% endif %}
+        </p>
+      </div>
+
+      {% if draft and draft.estimated_budget_twd %}
+        <div class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-right">
+          <p class="text-xs text-slate-500">AI 預估參考總預算（非正式報價）</p>
+          <p class="text-xl font-bold text-slate-900">NT$ {{ "{:,}".format(draft.estimated_budget_twd) }}</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if draft and draft.fallback_reason %}
+      <div class="mt-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-800">
+        展示防呆機制提示：{{ draft.fallback_reason }}
+      </div>
+    {% endif %}
+
+    {% if draft and draft.diagnostics %}
+      <div class="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-700 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="font-bold text-slate-900">AI 呼叫與連網檢索診斷憑證</span>
+          {% if draft.diagnostics.generated_at %}
+            <span class="text-slate-500">生成時間：{{ draft.diagnostics.generated_at }}</span>
+          {% endif %}
+        </div>
+        <div class="flex flex-wrap gap-2">
+          {% if draft.diagnostics.gemini_called %}
+            <span class="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
+              已真實呼叫 Gemini API（{{ draft.diagnostics.model }} · {{ draft.diagnostics.latency_ms }} ms）
+            </span>
+            {% if draft.diagnostics.total_tokens %}
+              <span class="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 font-medium">
+                Token 用量：輸入 {{ draft.diagnostics.prompt_tokens or 0 }} ／ 輸出 {{ draft.diagnostics.output_tokens or 0 }}（共 {{ draft.diagnostics.total_tokens }}）
+              </span>
+            {% endif %}
+          {% else %}
+            <span class="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
+              未呼叫 Gemini API（使用保底 Mock）
+            </span>
+          {% endif %}
+
+          <span class="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 font-semibold">
+            ESPN 即時賽程 API：抓到 {{ draft.diagnostics.espn_total_found if draft.diagnostics.espn_total_found is defined else draft.diagnostics.espn_events_count }} 場（精選 {{ draft.diagnostics.espn_events_count }} 場給 AI）
+          </span>
+
+          {% if draft.diagnostics.espn_matched_team %}
+            <span class="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
+              已鎖定球隊：{{ draft.diagnostics.espn_matched_team }}
+            </span>
+          {% endif %}
+
+          {% if draft.diagnostics.espn_covered_range %}
+            <span class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">
+              涵蓋區間：{{ draft.diagnostics.espn_covered_range }}
+            </span>
+          {% endif %}
+
+          <span class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium">
+            ddgs 權威搜尋：抓到 {{ draft.diagnostics.ddgs_results_count }} 筆{% if draft.diagnostics.used_default_sources %}（已補預設官方連結）{% endif %}
+          </span>
+
+          {% if draft.diagnostics.translated_preference %}
+            <span class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">
+              偏好關鍵字轉換：{{ draft.preference }} → {{ draft.diagnostics.translated_preference }}
+            </span>
+          {% endif %}
+        </div>
+
+        {% if draft.diagnostics.attempted_models and draft.diagnostics.attempted_models|length > 1 %}
+          <div class="text-slate-600">
+            模型備援軌跡：
+            {% for step in draft.diagnostics.attempted_models %}
+              <span class="font-mono">{{ step.model }} ({{ step.status }})</span>{% if not loop.last %} → {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% if draft.live_schedules %}
+          <details class="pt-1">
+            <summary class="cursor-pointer font-semibold text-sky-700 hover:underline">
+              展開檢視本次從 ESPN 抓回之原始即時賽程（{{ draft.live_schedules|length }} 筆）
+            </summary>
+            <div class="mt-2 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+              {% for ev in draft.live_schedules %}
+                <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span class="font-semibold text-slate-900">{{ ev.date }}</span>
+                    <span class="mx-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">{{ ev.league }}</span>
+                    <span class="text-slate-800">{{ ev.matchup }}</span>
+                  </div>
+                  <span class="text-slate-500">{{ ev.venue }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {% if trip.status == 'CANCELLED' %}
+    <div class="rounded-2xl bg-rose-50 border border-rose-200 px-5 py-4 text-sm text-rose-900">
+      <strong>此行程規劃已取消（退單）：</strong>會員已撤回此筆規劃，無法再重新生成或送出確認報價（專員可於專員工作台清理刪除）。
+    </div>
+  {% endif %}
+
+  {% if main_order %}
+    <div class="{% if main_order.order_status == 'CANCELLED' %}bg-slate-100 border-slate-300{% else %}bg-emerald-50 border-emerald-200{% endif %} border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <div class="text-xs font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% else %}text-emerald-700{% endif %} uppercase tracking-wider">DFD 3.0 · 詢價／訂單狀態</div>
+        <h2 class="text-base font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-900{% else %}text-emerald-950{% endif %} mt-1">
+          主行程訂單 #{{ main_order.order_id }}（{{ main_order.order_type }}）— 狀態：{{ main_order.order_status }}
+        </h2>
+        <p class="text-xs {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% else %}text-emerald-800{% endif %} mt-1">
+          指派訂票專員：<strong>{{ main_order.agent_id or 'AG001' }}</strong> ·
+          一口價金額：{{ ('NT$ ' ~ "{:,}".format(main_order.quoted_price)) if main_order.quoted_price else ('已隨行程退單取消' if main_order.order_status == 'CANCELLED' else '待專員開立一口價報價單（無訂金）') }}
+        </p>
+      </div>
+      <span class="inline-flex items-center px-3 py-1.5 rounded-xl bg-white border {% if main_order.order_status == 'CANCELLED' %}border-slate-300 text-rose-700{% else %}border-emerald-200 text-emerald-800{% endif %} text-xs font-semibold">
+        {{ '已退單取消' if main_order.order_status == 'CANCELLED' else '等待專員報價中' }}
+      </span>
+    </div>
+  {% endif %}
+
+  {% if draft %}
+    {% if draft.feasibility is defined %}
+      {% if draft.feasibility.errors %}
+        <div class="rounded-2xl bg-rose-50 border border-rose-200 px-5 py-4 text-xs text-rose-900 space-y-1.5">
+          <div class="font-bold text-sm text-rose-950">排程可行性衝突警示（請於下方「彈性調整觀賽場次」修正後再送出確認）</div>
+          <ul class="list-disc pl-5 space-y-1">
+            {% for err in draft.feasibility.errors %}
+              <li>{{ err }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% elif draft.feasibility.warnings %}
+        <div class="rounded-2xl bg-amber-50 border border-amber-200 px-5 py-4 text-xs text-amber-900 space-y-1.5">
+          <div class="font-bold text-sm text-amber-950">跨場館交通與動線提醒</div>
+          <ul class="list-disc pl-5 space-y-1">
+            {% for warn in draft.feasibility.warnings %}
+              <li>{{ warn }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% else %}
+        <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-xs text-emerald-800 font-semibold">
+          ✓ 排程可行性檢查通過：無同日場館／時間衝突，且已預留國際班機出發／回程日與跨洲轉乘緩衝時間。
+        </div>
+      {% endif %}
+    {% endif %}
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+        <p class="text-xs text-slate-500">旅遊天數</p>
+        <p class="text-lg font-bold text-slate-900 mt-0.5">{{ draft.days|length }} 天</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">{{ trip.start_date }} ~ {{ trip.end_date }}</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+        <p class="text-xs text-slate-500">已排觀賽場次</p>
+        <p class="text-lg font-bold text-indigo-700 mt-0.5">{{ draft.matches|length }} 場</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">目標場數：{{ draft.desired_match_count or 2 }} 場</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+        <p class="text-xs text-slate-500">機酒代訂配置</p>
+        <p class="text-sm font-bold text-slate-900 mt-1">
+          機票：{{ '需要' if trip.need_flight else '自理' }} ／ 飯店：{{ '需要' if trip.need_hotel else '自理' }}
+        </p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+        <p class="text-xs text-slate-500">預估參考預算</p>
+        <p class="text-lg font-bold text-emerald-700 mt-0.5">
+          {% if draft.estimated_budget_twd %}NT$ {{ "{:,}".format(draft.estimated_budget_twd) }}{% else %}待估算{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-6">
+      <h2 class="text-base font-bold text-slate-900 mb-2">旅遊大架構總覽</h2>
+      <p class="text-sm text-slate-700 leading-relaxed">{{ draft.summary }}</p>
+      {% if draft.custom_instruction %}
+        <p class="mt-2 text-xs text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-1.5 inline-block">
+          已套用個人微調指令：{{ draft.custom_instruction }}
+        </p>
+      {% endif %}
+    </div>
+
+    <div>
+      <h2 class="text-base font-bold text-slate-900 mb-3">推薦核心觀賽場次</h2>
+      {% if draft.matches %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {% for match in draft.matches %}
+            <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+              <div class="text-xs font-semibold text-sky-600">{{ match.date }}</div>
+              <h3 class="text-base font-bold text-slate-900 mt-1">{{ match.matchup }}</h3>
+              <p class="text-xs text-slate-600 mt-1">場館：{{ match.venue }}</p>
+              <p class="text-xs text-slate-500 mt-2 bg-slate-50 rounded-lg p-2.5">{{ match.note }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="bg-white rounded-xl border border-slate-200 p-5 text-sm text-slate-600">
+          所選旅遊日期區間內暫無排入賽事（請於下方「彈性調整觀賽場次」勾選加賽或確認 ESPN 即時查詢結果）。
+        </div>
+      {% endif %}
+    </div>
+
+    {% if is_owner and active_role != 'agent' and trip.status == 'DRAFT' %}
+      <div class="bg-sky-50/70 rounded-2xl border border-sky-200 p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span class="inline-block text-[11px] font-bold uppercase tracking-wider text-sky-700 bg-sky-100 px-2 py-0.5 rounded">
+              草稿彈性微調面板
+            </span>
+            <h2 class="text-base font-bold text-slate-900 mt-1">彈性調整觀賽場次與大架構（免重填表單）</h2>
+            <p class="text-xs text-slate-600 mt-0.5">
+              取消勾選不想要的比賽，或從本次 ESPN 即時賽程庫加選其他場次，再選擇「秒更新」或「AI 依指令重排」。
+            </p>
+          </div>
+        </div>
+
+        <form action="/trips/{{ trip.trip_id }}/customize" method="post" class="space-y-4">
+          <div>
+            <p class="text-xs font-bold text-slate-700 mb-2">1. 目前已排入的賽事（取消勾選即剔除）</p>
+            {% if draft.matches %}
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {% for m in draft.matches %}
+                  <label class="flex items-start gap-2.5 bg-white border border-sky-200 rounded-xl p-3 cursor-pointer hover:border-sky-400 transition">
+                    <input
+                      type="checkbox"
+                      name="selected_match_keys"
+                      value="{{ m.date }}||{{ m.matchup }}||{{ m.venue }}"
+                      data-match-checkbox="1"
+                      data-date="{{ m.date }}"
+                      data-venue="{{ m.venue }}"
+                      data-region="{{ m.region or '' }}"
+                      data-league="{{ m.league or '' }}"
+                      data-kickoff="{{ m.kickoff_utc or '' }}"
+                      data-label="{{ m.matchup }}"
+                      checked
+                      class="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <div class="text-xs">
+                      <div class="font-bold text-slate-900">{{ m.date }} · {{ m.matchup }}</div>
+                      <div class="text-slate-500 mt-0.5">{{ m.venue }}</div>
+                    </div>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-xs text-slate-500 bg-white rounded-xl border border-slate-200 p-3">目前尚未排入任何比賽。</p>
+            {% endif %}
+          </div>
+
+          {% set ns = namespace(extras=[]) %}
+          {% for ev in draft.live_schedules or [] %}
+            {% set ns_hit = namespace(found=false) %}
+            {% for m in draft.matches %}
+              {% if m.date == ev.date and (ev.matchup in m.matchup or m.matchup in ev.matchup) %}
+                {% set ns_hit.found = true %}
+              {% endif %}
+            {% endfor %}
+            {% if not ns_hit.found %}
+              {% set ns.extras = ns.extras + [ev] %}
+            {% endif %}
+          {% endfor %}
+
+          {% if ns.extras %}
+            <div>
+              <p class="text-xs font-bold text-slate-700 mb-2">
+                2. 從 ESPN 即時賽程庫加選其他賽事（可多選，共 {{ ns.extras|length }} 場可選）
+              </p>
+              <div class="max-h-52 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2 pr-1">
+                {% for ev in ns.extras %}
+                  <label class="flex items-start gap-2.5 bg-white border border-slate-200 rounded-xl p-2.5 cursor-pointer hover:border-sky-400 transition">
+                    <input
+                      type="checkbox"
+                      name="selected_match_keys"
+                      value="{{ ev.date }}||{{ ev.matchup }}（{{ ev.league }}）||{{ ev.venue }}"
+                      data-match-checkbox="1"
+                      data-date="{{ ev.date }}"
+                      data-venue="{{ ev.venue }}"
+                      data-region="{{ ev.region or '' }}"
+                      data-league="{{ ev.league }}"
+                      data-kickoff="{{ ev.kickoff_utc or '' }}"
+                      data-label="{{ ev.matchup }}（{{ ev.league }}）"
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <div class="text-xs">
+                      <div class="font-semibold text-slate-900">
+                        {{ ev.date }} · <span class="text-sky-700">[{{ ev.league }}]</span> {{ ev.matchup }}
+                      </div>
+                      <div class="text-slate-500">{{ ev.venue }}</div>
+                    </div>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div>
+              <label for="custom_desired_count" class="block text-xs font-bold text-slate-700 mb-1">目標場數</label>
+              <select
+                id="custom_desired_count"
+                name="desired_match_count"
+                class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs"
+              >
+                {% set cur_cnt = draft.desired_match_count or 2 %}
+                {% for n in [1, 2, 3, 4, 5, 6] %}
+                  <option value="{{ n }}" {% if cur_cnt == n %}selected{% endif %}>{{ n }} 場</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="sm:col-span-2">
+              <label for="custom_instruction" class="block text-xs font-bold text-slate-700 mb-1">
+                補充微調指令（選填，送 AI 重排時生效）
+              </label>
+              <input
+                id="custom_instruction"
+                name="custom_instruction"
+                type="text"
+                maxlength="200"
+                value="{{ draft.custom_instruction or '' }}"
+                placeholder="例如：兩場比賽間預留完整休息日、住宿改靠近火車站或球場"
+                class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+          </div>
+
+          <div
+            id="live-conflict-warning"
+            class="hidden rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-xs text-rose-800 space-y-1"
+          ></div>
+
+          <div class="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+            <button
+              type="submit"
+              name="action_mode"
+              value="instant"
+              class="px-4 py-2 rounded-xl bg-white border border-sky-300 hover:bg-sky-100 text-sky-900 text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              立即套用勾選場次（秒更新）
+            </button>
+            <button
+              type="submit"
+              name="action_mode"
+              value="ai_replan"
+              class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              依勾選場次與指令讓 AI 重排大架構
+            </button>
+          </div>
+        </form>
+      </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs font-semibold text-slate-500 mb-1">機票配置建議</div>
+        <p class="text-sm text-slate-800">{{ draft.flight_suggestion }}</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs font-semibold text-slate-500 mb-1">住宿區域建議</div>
+        <p class="text-sm text-slate-800">{{ draft.hotel_suggestion }}</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-base font-bold text-slate-900">逐日結構化行程表（未付款僅顯示賽事、交通、住宿與🔒空檔；付款後解鎖景點自由行）</h2>
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+          <span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">賽事日</span>
+          <span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800">抵達日</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700">空檔日（付款後解鎖）</span>
+          <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800">返程日</span>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        {% for day in draft.days %}
+          {% set dtype = day.day_type or 'EXPLORE' %}
+          <div class="rounded-xl border {% if dtype == 'MATCH_DAY' %}border-indigo-200{% elif dtype == 'ARRIVAL' %}border-sky-200{% elif dtype == 'DEPARTURE' %}border-amber-200{% else %}border-slate-200{% endif %} overflow-hidden">
+            <div class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 {% if dtype == 'MATCH_DAY' %}bg-indigo-50/80 border-b border-indigo-100{% elif dtype == 'ARRIVAL' %}bg-sky-50/80 border-b border-sky-100{% elif dtype == 'DEPARTURE' %}bg-amber-50/80 border-b border-amber-100{% else %}bg-slate-50 border-b border-slate-200{% endif %}">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold px-2 py-0.5 rounded {% if dtype == 'MATCH_DAY' %}bg-indigo-600 text-white{% elif dtype == 'ARRIVAL' %}bg-sky-600 text-white{% elif dtype == 'DEPARTURE' %}bg-amber-600 text-white{% else %}bg-slate-700 text-white{% endif %}">
+                  Day {{ day.day_number }}
+                </span>
+                <span class="text-xs font-medium text-slate-600">{{ day.date }}</span>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/80 text-slate-700 border border-slate-200">
+                  {% if dtype == 'MATCH_DAY' %}賽事日{% elif dtype == 'ARRIVAL' %}抵達日{% elif dtype == 'DEPARTURE' %}返程日{% else %}自由空檔日{% endif %}
+                </span>
+                <h3 class="text-sm font-bold text-slate-900">{{ day.title }}</h3>
+              </div>
+              {% if day.city %}
+                <span class="text-xs font-medium text-slate-500">{{ day.city }}</span>
+              {% endif %}
+            </div>
+
+            <div class="overflow-x-auto bg-white">
+              <table class="w-full text-xs text-left">
+                <thead class="bg-slate-50/60 text-slate-500 border-b border-slate-100">
+                  <tr>
+                    <th class="px-4 py-2 w-28">時段</th>
+                    <th class="px-4 py-2 w-24">類別</th>
+                    <th class="px-4 py-2">行程項目與細節</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  {% if day.blocks %}
+                    {% for blk in day.blocks %}
+                      <tr class="{% if blk.category == '空檔' %}bg-slate-50/70 hover:bg-slate-100/60{% else %}hover:bg-slate-50/50{% endif %}">
+                        <td class="px-4 py-2.5 font-semibold text-slate-700 whitespace-nowrap">{{ blk.period }}</td>
+                        <td class="px-4 py-2.5 whitespace-nowrap">
+                          <span class="inline-block px-2 py-0.5 rounded font-semibold {% if blk.category == '賽事' %}bg-indigo-50 text-indigo-700{% elif blk.category == '交通' %}bg-amber-50 text-amber-800{% elif blk.category == '住宿' %}bg-teal-50 text-teal-800{% else %}bg-slate-100 text-slate-600 border border-dashed border-slate-300{% endif %}">
+                            {% if blk.category == '空檔' %}🔒 空檔{% else %}{{ blk.category }}{% endif %}
+                          </span>
+                        </td>
+                        <td class="px-4 py-2.5">
+                          <div class="font-semibold {% if blk.category == '空檔' %}text-slate-700{% else %}text-slate-900{% endif %}">{{ blk.title }}</div>
+                          {% if blk.detail and blk.detail != blk.title %}
+                            <div class="text-slate-500 mt-0.5">{{ blk.detail }}</div>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    {% for item in day.highlights %}
+                      <tr>
+                        <td class="px-4 py-2.5 font-semibold text-slate-500">全日</td>
+                        <td class="px-4 py-2.5">
+                          <span class="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">行程</span>
+                        </td>
+                        <td class="px-4 py-2.5 text-slate-700">{{ item }}</td>
+                      </tr>
+                    {% endfor %}
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if draft.search_sources %}
+      <div class="bg-white rounded-2xl border border-slate-200 p-6">
+        <h2 class="text-base font-bold text-slate-900 mb-3">權威賽事資訊來源</h2>
+        <div class="space-y-2.5">
+          {% for src in draft.search_sources %}
+            <div class="p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <a
+                href="{{ src.url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-sm font-semibold text-sky-700 hover:underline"
+              >
+                {{ src.title }}
+              </a>
+              {% if src.snippet %}
+                <p class="text-xs text-slate-500 mt-1">{{ src.snippet }}</p>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 text-center space-y-3">
+      <p class="text-sm text-slate-600">此行程尚未產生 AI 大架構草稿（例如預設示範資料）。</p>
+      {% if is_owner and active_role != 'agent' and trip.status == 'DRAFT' %}
+        <form action="/trips/{{ trip.trip_id }}/regenerate" method="post" class="inline-block">
+          <button
+            type="submit"
+            class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold transition cursor-pointer"
+          >
+            立即產生 AI 行程大架構
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if is_owner and active_role != 'agent' and trip.status in ('DRAFT', 'CONFIRMED') %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        {% if trip.status == 'DRAFT' %}
+          <h2 class="text-base font-bold text-slate-900">確認行程大架構</h2>
+          <p class="text-xs text-slate-500 mt-0.5">確認後系統將鎖定此草稿並送出待報價詢價單給訂票專員（AG001）；若暫不需要也可直接退單。</p>
+        {% else %}
+          <h2 class="text-base font-bold text-slate-900">行程已送出待報價詢價</h2>
+          <p class="text-xs text-slate-500 mt-0.5">在尚未完成付款前，您仍可隨時取消此筆行程規劃（退單）。</p>
+        {% endif %}
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <form
+          action="/trips/{{ trip.trip_id }}/cancel"
+          method="post"
+          onsubmit="return confirm('確定要取消（退單）此筆行程規劃嗎？');"
+        >
+          <input type="hidden" name="next_page" value="detail" />
+          <button
+            type="submit"
+            class="px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-sm font-semibold transition cursor-pointer"
+          >
+            取消行程（退單）
+          </button>
+        </form>
+        {% if trip.status == 'DRAFT' and draft %}
+          <form action="/trips/{{ trip.trip_id }}/regenerate" method="post">
+            <button
+              type="submit"
+              class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition cursor-pointer"
+            >
+              重新生成大架構
+            </button>
+          </form>
+          <form action="/trips/{{ trip.trip_id }}/confirm" method="post">
+            <button
+              type="submit"
+              class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-sm transition cursor-pointer"
+            >
+              確認架構並送出待報價詢價單
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% if is_owner and active_role != 'agent' and trip.status == 'DRAFT' and draft %}
+<script>
+(() => {
+  const warningBox = document.getElementById("live-conflict-warning");
+  const checkboxes = Array.from(document.querySelectorAll('input[data-match-checkbox="1"]'));
+  if (!warningBox || !checkboxes.length) return;
+
+  const tripStart = "{{ trip.start_date.isoformat() }}";
+  const tripEnd = "{{ trip.end_date.isoformat() }}";
+  const needFlight = {{ 'true' if trip.need_flight else 'false' }};
+  const tripDays = {{ (trip.end_date - trip.start_date).days + 1 }};
+  const defaultLeague = "{{ trip.league_type }}";
+
+  function inferRegion(cb) {
+    const explicit = (cb.dataset.region || "").trim().toUpperCase();
+    if (explicit === "NA" || explicit === "EU") return explicit;
+    const text = ((cb.dataset.league || "") + " " + (cb.dataset.label || "")).toLowerCase();
+    if (/英超|西甲|義甲|德甲|法甲|歐冠|歐足|premier|la liga|serie a|bundesliga|ligue 1|uefa|champions|soccer|liverpool|everton|arsenal|chelsea|manchester|tottenham|real madrid|barcelona|bayern|cologne/.test(text)) {
+      return "EU";
+    }
+    if (/mlb|nba|baseball|basketball|dodgers|yankees|warriors|lakers|celtics|chase center/.test(text)) {
+      return "NA";
+    }
+    return defaultLeague.includes("歐") ? "EU" : "NA";
+  }
+
+  function normVenue(v) {
+    return (v || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function dayDiff(aIso, bIso) {
+    const a = new Date(aIso + "T00:00:00Z");
+    const b = new Date(bIso + "T00:00:00Z");
+    return Math.round((b.getTime() - a.getTime()) / 86400000);
+  }
+
+  function evaluateConflicts() {
+    const checked = checkboxes.filter((cb) => cb.checked).map((cb) => ({
+      date: (cb.dataset.date || "").slice(0, 10),
+      venue: normVenue(cb.dataset.venue),
+      region: inferRegion(cb),
+      kickoff: (cb.dataset.kickoff || "").trim(),
+      label: cb.dataset.label || "賽事",
+    })).sort((a, b) => (a.date + a.kickoff + a.label).localeCompare(b.date + b.kickoff + b.label));
+
+    const errors = [];
+
+    if (needFlight && tripDays >= 3) {
+      for (const item of checked) {
+        if (item.date === tripStart || item.date === tripEnd) {
+          const role = item.date === tripStart ? "出發日" : "回程日";
+          errors.push(`已勾選代訂國際機票，${role}（${item.date}）須預留長程飛行與通關時間，請勿排入「${item.label}」。`);
+        }
+      }
+    }
+
+    const byDate = {};
+    for (const item of checked) {
+      if (!byDate[item.date]) byDate[item.date] = [];
+      byDate[item.date].push(item);
+    }
+    for (const [d, list] of Object.entries(byDate)) {
+      if (list.length < 2) continue;
+      let conflict = false;
+      for (let i = 0; i < list.length && !conflict; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i];
+          const b = list[j];
+          const diffVenue = !a.venue || !b.venue || a.venue !== b.venue;
+          if (diffVenue || !a.kickoff || !b.kickoff) {
+            conflict = true;
+            break;
+          }
+          const tA = Date.parse(a.kickoff);
+          const tB = Date.parse(b.kickoff);
+          if (Number.isNaN(tA) || Number.isNaN(tB) || Math.abs(tB - tA) < 5 * 3600 * 1000) {
+            conflict = true;
+            break;
+          }
+        }
+      }
+      if (conflict) {
+        errors.push(`同一天（${d}）排入多場時間或場館衝突賽事（${list.map((x) => x.label).join("、")}），請取消其中一場。`);
+      }
+    }
+
+    for (let i = 0; i < checked.length - 1; i++) {
+      const prev = checked[i];
+      const curr = checked[i + 1];
+      if (prev.region !== curr.region && dayDiff(prev.date, curr.date) < 2) {
+        errors.push(`跨洲賽事（北美 ↔ 歐洲）間隔不足 2 天（${prev.date} 與 ${curr.date}），請至少預留 2 天飛行緩衝。`);
+      }
+    }
+
+    if (errors.length) {
+      warningBox.innerHTML = `<div class="font-bold text-rose-900">偵測到排程衝突（送出時將被系統攔截）：</div>`
+        + errors.map((e) => `<div>• ${e.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join("");
+      warningBox.classList.remove("hidden");
+    } else {
+      warningBox.innerHTML = "";
+      warningBox.classList.add("hidden");
+    }
+  }
+
+  for (const cb of checkboxes) {
+    cb.addEventListener("change", evaluateConflicts);
+  }
+  evaluateConflicts();
+})();
+</script>
+{% endif %}
+{% endblock %}

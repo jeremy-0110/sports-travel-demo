@@ -78,6 +78,7 @@
                 <th class="px-6 py-3">旅遊區間</th>
                 <th class="px-6 py-3">機票 / 飯店需求</th>
                 <th class="px-6 py-3">狀態</th>
+                <th class="px-6 py-3 text-right">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -94,7 +95,30 @@
                     飯店：{{ '需要' if trip.need_hotel else '自理' }}
                   </td>
                   <td class="px-6 py-3">
-                    <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-xs font-semibold">{{ trip.status }}</span>
+                    <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-amber-50 text-amber-800{% endif %} text-xs font-semibold">{{ trip.status }}</span>
+                  </td>
+                  <td class="px-6 py-3 text-right">
+                    <div class="inline-flex items-center gap-2">
+                      <a
+                        href="/trips/{{ trip.trip_id }}"
+                        class="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition"
+                      >
+                        檢視架構
+                      </a>
+                      <form
+                        action="/trips/{{ trip.trip_id }}/delete"
+                        method="post"
+                        class="inline"
+                        onsubmit="return confirm('確定要永久刪除此筆行程與關聯訂單嗎？');"
+                      >
+                        <button
+                          type="submit"
+                          class="inline-flex items-center px-3 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition cursor-pointer"
+                        >
+                          刪單
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
@@ -139,6 +163,14 @@
           <p class="text-sky-100 text-sm sm:text-base mt-2">
             您目前以會員身分（{{ current_user.email }}）登入。系統支援即時賽程搜尋與 Gemini 大架構規劃，並由專屬訂票專員（如 AG001）提供一口價代訂服務。
           </p>
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <a
+              href="/trips/new"
+              class="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold text-sm shadow transition"
+            >
+              ＋ 新增賽事旅遊需求
+            </a>
+          </div>
         {% else %}
           <h1 class="text-2xl sm:text-3xl font-bold">
             跨國體育賽事旅遊規劃與真人代訂系統
@@ -199,9 +231,14 @@
 
     {% if current_user %}
       <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
           <h2 class="text-base font-bold text-slate-900">我的行程與大架構 (D2)</h2>
-          <span class="text-xs text-slate-500">Phase 2 將開放「新增需求 &amp; AI 規劃」</span>
+          <a
+            href="/trips/new"
+            class="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition"
+          >
+            ＋ 新增賽事旅遊需求
+          </a>
         </div>
         {% if user_trips %}
           <div class="overflow-x-auto">
@@ -213,6 +250,7 @@
                   <th class="px-6 py-3">旅遊日期</th>
                   <th class="px-6 py-3">代訂項目</th>
                   <th class="px-6 py-3">目前狀態</th>
+                  <th class="px-6 py-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
@@ -227,7 +265,33 @@
                       球賽門票{% if trip.need_flight %} ＋ 機票{% endif %}{% if trip.need_hotel %} ＋ 飯店{% endif %}
                     </td>
                     <td class="px-6 py-3">
-                      <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">{{ trip.status }}</span>
+                      <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-700{% endif %} text-xs font-semibold">{{ trip.status }}</span>
+                    </td>
+                    <td class="px-6 py-3 text-right">
+                      <div class="inline-flex items-center gap-2">
+                        <a
+                          href="/trips/{{ trip.trip_id }}"
+                          class="inline-flex items-center px-3 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-semibold transition"
+                        >
+                          檢視大架構
+                        </a>
+                        {% if trip.status in ('DRAFT', 'CONFIRMED') %}
+                          <form
+                            action="/trips/{{ trip.trip_id }}/cancel"
+                            method="post"
+                            class="inline"
+                            onsubmit="return confirm('確定要取消（退單）此筆行程規劃嗎？');"
+                          >
+                            <input type="hidden" name="next_page" value="home" />
+                            <button
+                              type="submit"
+                              class="inline-flex items-center px-3 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition cursor-pointer"
+                            >
+                              退單
+                            </button>
+                          </form>
+                        {% endif %}
+                      </div>
                     </td>
                   </tr>
                 {% endfor %}
