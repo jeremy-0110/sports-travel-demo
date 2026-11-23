@@ -230,6 +230,46 @@
     </div>
   {% endif %}
 
+  {% if gap_unlocked %}
+    <div class="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50/70 to-sky-50 p-5 space-y-3 shadow-xs">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div class="space-y-1">
+          <div class="text-xs font-bold uppercase tracking-wider text-emerald-800">
+            DFD 6.0 · 免費空檔行程規劃已解鎖
+          </div>
+          <h2 class="text-base font-bold text-emerald-950">
+            自由時段已解鎖！可由 Gemini 依喜好推薦空檔景點，並選擇代訂門票
+          </h2>
+          <p class="text-xs text-emerald-900">
+            目前已儲存 <strong>{{ gap_items|length }}</strong> 個空檔時段行程；若勾選景點代訂，將進入同一套「專員一口價報價 → 一次付清 → SPOT 景點憑證」流程。
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <a
+            href="/trips/{{ trip.trip_id }}/gap"
+            class="inline-flex items-center px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition"
+          >
+            前往免費空檔行程規劃與加購 →
+          </a>
+        </div>
+      </div>
+      {% if addon_orders %}
+        <div class="pt-2 border-t border-emerald-200/80 flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-bold text-emerald-950">景點門票加購訂單：</span>
+          {% for ao in addon_orders %}
+            <a
+              href="/orders/{{ ao.order_id }}"
+              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-semibold transition"
+            >
+              <span>加購 #{{ ao.order_id }}（{{ ao.order_status }}）</span>
+              {% if ao.quoted_price %}<span>NT$ {{ "{:,}".format(ao.quoted_price) }}</span>{% endif %}
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
   {% if draft %}
     {% if draft.feasibility is defined %}
       {% if draft.feasibility.errors %}
@@ -516,17 +556,36 @@
                 <tbody class="divide-y divide-slate-100">
                   {% if day.blocks %}
                     {% for blk in day.blocks %}
-                      <tr class="{% if blk.category == '空檔' %}bg-slate-50/70 hover:bg-slate-100/60{% else %}hover:bg-slate-50/50{% endif %}">
+                      {% set slot_key = day.day_number ~ '::' ~ blk.period %}
+                      {% set saved_gap = gap_lookup.get(slot_key) if blk.category == '空檔' else none %}
+                      <tr class="{% if saved_gap %}bg-emerald-50/50 hover:bg-emerald-50{% elif blk.category == '空檔' %}bg-slate-50/70 hover:bg-slate-100/60{% else %}hover:bg-slate-50/50{% endif %}">
                         <td class="px-4 py-2.5 font-semibold text-slate-700 whitespace-nowrap">{{ blk.period }}</td>
                         <td class="px-4 py-2.5 whitespace-nowrap">
-                          <span class="inline-block px-2 py-0.5 rounded font-semibold {% if blk.category == '賽事' %}bg-indigo-50 text-indigo-700{% elif blk.category == '交通' %}bg-amber-50 text-amber-800{% elif blk.category == '住宿' %}bg-teal-50 text-teal-800{% else %}bg-slate-100 text-slate-600 border border-dashed border-slate-300{% endif %}">
-                            {% if blk.category == '空檔' %}🔒 空檔{% else %}{{ blk.category }}{% endif %}
+                          <span class="inline-block px-2 py-0.5 rounded font-semibold {% if saved_gap %}bg-emerald-100 text-emerald-800{% elif blk.category == '賽事' %}bg-indigo-50 text-indigo-700{% elif blk.category == '交通' %}bg-amber-50 text-amber-800{% elif blk.category == '住宿' %}bg-teal-50 text-teal-800{% else %}bg-slate-100 text-slate-600 border border-dashed border-slate-300{% endif %}">
+                            {% if saved_gap %}✓ 空檔行程{% elif blk.category == '空檔' %}{{ '🔓 已解鎖空檔' if gap_unlocked else '🔒 空檔' }}{% else %}{{ blk.category }}{% endif %}
                           </span>
                         </td>
                         <td class="px-4 py-2.5">
-                          <div class="font-semibold {% if blk.category == '空檔' %}text-slate-700{% else %}text-slate-900{% endif %}">{{ blk.title }}</div>
-                          {% if blk.detail and blk.detail != blk.title %}
-                            <div class="text-slate-500 mt-0.5">{{ blk.detail }}</div>
+                          {% if saved_gap %}
+                            <div class="font-semibold text-emerald-950">{{ saved_gap.activity_name }}</div>
+                            <div class="text-slate-600 mt-0.5 flex flex-wrap items-center gap-2">
+                              {% if saved_gap.need_ticket_addon and saved_gap.addon_order_id %}
+                                <a href="/orders/{{ saved_gap.addon_order_id }}" class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold hover:underline">
+                                  專員代訂門票（加購訂單 #{{ saved_gap.addon_order_id }}）
+                                </a>
+                              {% elif saved_gap.need_ticket_addon %}
+                                <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                                  已勾選專員代訂門票（待送出詢價）
+                                </span>
+                              {% else %}
+                                <span class="text-emerald-700">已解鎖免費自由行活動</span>
+                              {% endif %}
+                            </div>
+                          {% else %}
+                            <div class="font-semibold {% if blk.category == '空檔' %}text-slate-700{% else %}text-slate-900{% endif %}">{{ blk.title }}</div>
+                            {% if blk.detail and blk.detail != blk.title %}
+                              <div class="text-slate-500 mt-0.5">{{ blk.detail }}</div>
+                            {% endif %}
                           {% endif %}
                         </td>
                       </tr>

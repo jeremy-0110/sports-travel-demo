@@ -16,7 +16,8 @@ from app.auth import (
 )
 from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
 from app.database import get_db
-from app.models import Agent, OrderQuote, TripPlan, User
+from app.models import Agent, GapItineraryItem, OrderQuote, TripPlan, User
+from app.services.gap_planner import is_trip_gap_unlocked
 from app.services.mailer import send_quoting_request_email
 from app.services.planner import (
     LEAGUE_OPTIONS,
@@ -236,6 +237,23 @@ def trip_detail_page(
     )
     trip_owner = db.get(User, trip.user_id)
     draft = parse_draft_json(trip.llm_draft_json)
+    gap_unlocked = is_trip_gap_unlocked(trip, db)
+    gap_items = (
+        db.query(GapItineraryItem)
+        .filter(GapItineraryItem.trip_id == trip.trip_id)
+        .order_by(GapItineraryItem.day_number.asc(), GapItineraryItem.item_id.asc())
+        .all()
+    )
+    gap_lookup = {f"{item.day_number}::{item.time_slot}": item for item in gap_items}
+    addon_orders = (
+        db.query(OrderQuote)
+        .filter(
+            OrderQuote.trip_id == trip.trip_id,
+            OrderQuote.order_type == "ADDON",
+        )
+        .order_by(OrderQuote.order_id.desc())
+        .all()
+    )
 
     context = build_nav_context(request, db)
     context.update(
@@ -244,6 +262,10 @@ def trip_detail_page(
             "trip_owner": trip_owner,
             "draft": draft,
             "main_order": main_order,
+            "gap_unlocked": gap_unlocked,
+            "gap_items": gap_items,
+            "gap_lookup": gap_lookup,
+            "addon_orders": addon_orders,
             "is_owner": current_user is not None and trip.user_id == current_user.user_id,
         }
     )

@@ -8,9 +8,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import BookingException, BookingVoucher, OrderQuote, PaymentTxn, utc_now
+from app.models import BookingException, BookingVoucher, GapItineraryItem, OrderQuote, PaymentTxn, utc_now
 from app.services.payment import process_mock_refund
-from app.services.planner import parse_draft_json
+from app.services.planner import _get_league_preset, parse_draft_json
 
 _TAIPEI_TZ = timezone(timedelta(hours=8))
 
@@ -641,6 +641,80 @@ def auto_issue_trip_vouchers(db: Session, order: OrderQuote) -> list[BookingVouc
     has_hotel = any(v.category == "HOTEL" for v in existing)
 
     created: list[BookingVoucher] = []
+
+    if order.order_type == "ADDON":
+        existing_spot_titles = {
+            str(parse_voucher_detail(v.detail_json).get("title") or "")
+            for v in existing
+            if v.category == "SPOT"
+        }
+        addon_items = (
+            db.query(GapItineraryItem)
+            .filter(GapItineraryItem.addon_order_id == order.order_id)
+            .order_by(GapItineraryItem.day_number.asc(), GapItineraryItem.item_id.asc())
+            .all()
+        )
+        default_city = str(_get_league_preset(trip.league_type).get("city") or "主辦城市")
+        day_cities = {
+            int(d.get("day_number")): str(d.get("city") or default_city)
+            for d in (draft.get("days") or [])
+            if isinstance(d, dict) and d.get("day_number")
+        }
+        if addon_items:
+            for item in addon_items:
+                if item.activity_name in existing_spot_titles:
+                    continue
+                existing_spot_titles.add(item.activity_name)
+                visit_dt = trip.start_date + timedelta(days=max(item.day_number - 1, 0))
+                city = day_cities.get(item.day_number, default_city)
+                spot_fields = {
+                    "spot_name": item.activity_name,
+                    "visit_date": visit_dt.isoformat(),
+                    "time_slot": item.time_slot,
+                    "location": f"{city} · {item.activity_name} 官方電子票入口",
+                    "ticket_type": "加購雙人電子門票／快速通關券 ×2",
+                    "redemption_method": "於現場指定入口直接出示電子 QR Code 掃碼入場",
+                    "notes": f"Day {item.day_number}（{item.time_slot}）空檔景點門票代訂加購憑證",
+                }
+                spot_detail = _build_validated_spot_detail(spot_fields, traveler)
+                v = BookingVoucher(
+                    order_id=order.order_id,
+                    category="SPOT",
+                    booking_code=generate_booking_code("SPOT"),
+                    detail_json=json.dumps(spot_detail, ensure_ascii=False),
+                )
+                db.add(v)
+                created.append(v)
+        elif not existing_spot_titles:
+            spot_fields = {
+                "spot_name": f"{trip.league_type} 精選加購景點快速通關門票",
+                "visit_date": trip.start_date.isoformat(),
+                "time_slot": "下午預約梯次",
+                "location": f"{default_city} 指定景點快速通關入口",
+                "ticket_type": "加購雙人官方電子門票 ×2",
+                "redemption_method": "出示類 Agoda 訂票憑證與護照英文姓名掃碼入場",
+            }
+            spot_detail = _build_validated_spot_detail(spot_fields, traveler)
+            v = BookingVoucher(
+                order_id=order.order_id,
+                category="SPOT",
+                booking_code=generate_booking_code("SPOT"),
+                detail_json=json.dumps(spot_detail, ensure_ascii=False),
+            )
+            db.add(v)
+            created.append(v)
+
+        if created:
+            db.flush()
+            checklist = compute_fulfillment_checklist(db, order)
+            if checklist["is_complete"]:
+                order.order_status = "BOOKED"
+            db.commit()
+            for v in created:
+                db.refresh(v)
+            db.refresh(order)
+        return created
+
     matches = draft.get("matches") if isinstance(draft.get("matches"), list) else []
 
     if matches:

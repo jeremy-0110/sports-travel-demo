@@ -42,8 +42,12 @@
             endif %}</strong>
         </p>
         <p class="text-xs text-slate-500">
+          {% if order.order_type == 'ADDON' %}
+          包含代訂項目：空檔景點電子門票／快速通關加購（{{ addon_gap_items|length }} 項・無訂金一口價一次付清）
+          {% else %}
           包含代訂項目：核心賽事門票{% if trip.need_flight %} ＋ 來回國際機票{% endif %}{% if trip.need_hotel %} ＋ 住宿飯店{% endif
           %}（無訂金・一口價一次付清）
+          {% endif %}
         </p>
       </div>
 
@@ -70,7 +74,19 @@
       </div>
     </div>
 
-    {% if draft and draft.matches %}
+    {% if order.order_type == 'ADDON' and addon_gap_items %}
+    <div class="mt-4 pt-4 border-t border-slate-100">
+      <div class="text-xs font-bold text-slate-700 mb-2">本次景點門票加購明細（{{ addon_gap_items|length }} 項）</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {% for gi in addon_gap_items %}
+        <div class="rounded-xl bg-amber-50/70 border border-amber-200 px-3.5 py-2.5 text-xs">
+          <div class="font-bold text-amber-950">Day {{ gi.day_number }} · {{ gi.time_slot }}</div>
+          <div class="text-slate-800 font-semibold mt-0.5">{{ gi.activity_name }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% elif draft and draft.matches %}
     <div class="mt-4 pt-4 border-t border-slate-100">
       <div class="text-xs font-bold text-slate-700 mb-2">已鎖定納入報價之觀賽場次（{{ draft.matches|length }} 場）</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -205,7 +221,11 @@
           <form action="/orders/{{ order.order_id }}/vouchers/auto-issue" method="post">
             <button type="submit"
               class="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition cursor-pointer">
+              {% if order.order_type == 'ADDON' %}
+              一鍵批次核發景點門票憑證（SPOT）
+              {% else %}
               一鍵批次核發全套憑證（賽事＋機酒）
+              {% endif %}
             </button>
           </form>
         </div>
@@ -729,7 +749,12 @@
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 class="text-sm font-bold text-slate-900">1. 旅客護照與領票基本資料（訂機票、飯店及歐足實名球票必填）</h3>
-            <p class="text-[11px] text-slate-600 mt-0.5">系統會嚴格核對護照拼音與效期（須晚於回程日 {{ trip.end_date }}），未通過將攔截不予扣款。</p>
+            <p class="text-[11px] text-slate-600 mt-0.5">
+              系統會嚴格核對護照拼音與效期（須晚於回程日 {{ trip.end_date }}），未通過將攔截不予扣款。
+              {% if traveler_profile %}
+                <span class="font-bold text-emerald-700">（已自動帶入主行程儲存之護照資料，可直接點擊付款）</span>
+              {% endif %}
+            </p>
           </div>
           <button type="button" id="fill-demo-kyc-btn"
             class="px-3 py-1.5 rounded-lg bg-white border border-sky-300 hover:bg-sky-100 text-sky-800 text-xs font-semibold transition cursor-pointer">
@@ -875,14 +900,18 @@
       本次付款授權交易編號：<code class="bg-white/80 px-1.5 py-0.5 rounded font-mono">{{ latest_success_txn.gateway_ref }}</code>。
       {% endif %}
     </p>
-    {% if voucher_items %}
-    <div class="pt-1">
+    <div class="pt-1 flex flex-wrap items-center gap-2.5">
+      {% if voucher_items %}
       <a href="/orders/{{ order.order_id }}/vouchers"
         class="inline-flex items-center px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition">
         檢視／列印類 Agoda 訂票憑證確認單（共 {{ voucher_items|length }} 張）→
       </a>
+      {% endif %}
+      <a href="/trips/{{ trip.trip_id }}/gap"
+        class="inline-flex items-center px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition">
+        前往免費空檔行程規劃與景點加購 →
+      </a>
     </div>
-    {% endif %}
   </div>
   {% elif order.order_status == 'REFUNDED' %}
   <div class="rounded-2xl bg-purple-50 border border-purple-200 p-6 space-y-2">
@@ -1082,24 +1111,28 @@
     // 2. 專員分類開票頁籤切換
     const tabBtns = Array.from(document.querySelectorAll(".voucher-tab-btn"));
     const tabPanels = Array.from(document.querySelectorAll(".voucher-tab-panel"));
+    function activateVoucherTab(target) {
+      if (!tabBtns.length) return;
+      tabBtns.forEach((b) => {
+        const active = b.dataset.voucherTab === target;
+        b.classList.toggle("bg-indigo-600", active);
+        b.classList.toggle("text-white", active);
+        b.classList.toggle("shadow-xs", active);
+        b.classList.toggle("bg-white", !active);
+        b.classList.toggle("border", !active);
+        b.classList.toggle("border-slate-300", !active);
+        b.classList.toggle("text-slate-700", !active);
+      });
+      tabPanels.forEach((p) => {
+        p.classList.toggle("hidden", p.dataset.voucherPanel !== target);
+      });
+    }
     tabBtns.forEach((btn) => {
       btn.addEventListener("click", () => {
-        const target = btn.dataset.voucherTab;
-        tabBtns.forEach((b) => {
-          const active = b.dataset.voucherTab === target;
-          b.classList.toggle("bg-indigo-600", active);
-          b.classList.toggle("text-white", active);
-          b.classList.toggle("shadow-xs", active);
-          b.classList.toggle("bg-white", !active);
-          b.classList.toggle("border", !active);
-          b.classList.toggle("border-slate-300", !active);
-          b.classList.toggle("text-slate-700", !active);
-        });
-        tabPanels.forEach((p) => {
-          p.classList.toggle("hidden", p.dataset.voucherPanel !== target);
-        });
+        activateVoucherTab(btn.dataset.voucherTab);
       });
     });
+    activateVoucherTab("{{ default_voucher_tab or 'MATCH' }}");
 
     // 3. 賽事門票體系規範提示與 Section / Block 動態欄位切換
     const fmtSelect = document.getElementById("m_league_format");

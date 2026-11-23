@@ -18,6 +18,7 @@ from app.config import BASE_DIR, SESSION_SECRET_KEY, SUPPORTED_LEAGUES
 from app.database import get_db, init_db
 from app.models import Agent, OrderQuote, TripPlan, User
 from app.routers.auth import router as auth_router
+from app.routers.gap import router as gap_router
 from app.routers.orders import router as orders_router
 from app.routers.trips import router as trips_router
 from app.routers.vouchers import router as vouchers_router
@@ -48,6 +49,7 @@ app.include_router(auth_router)
 app.include_router(trips_router)
 app.include_router(orders_router)
 app.include_router(vouchers_router)
+app.include_router(gap_router)
 
 
 @app.get("/health")

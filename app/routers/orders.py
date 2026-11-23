@@ -70,11 +70,16 @@ def order_detail_page(
         .all()
     )
     draft = parse_draft_json(trip.llm_draft_json)
-    suggested_price = (
-        order.quoted_price
-        or (draft.get("estimated_budget_twd") if isinstance(draft, dict) else None)
-        or 68000
-    )
+    addon_gap_items = list(order.addon_gap_items) if order.order_type == "ADDON" else []
+    default_voucher_tab = "SPOT" if order.order_type == "ADDON" else "MATCH"
+    if order.order_type == "ADDON":
+        suggested_price = order.quoted_price or (max(len(addon_gap_items), 1) * 1800)
+    else:
+        suggested_price = (
+            order.quoted_price
+            or (draft.get("estimated_budget_twd") if isinstance(draft, dict) else None)
+            or 68000
+        )
     latest_success_txn = next(
         (t for t in txns if t.status == "SUCCESS" and t.txn_type == "PAYMENT"),
         None,
@@ -136,6 +141,8 @@ def order_detail_page(
             "traveler_profile": traveler_profile,
             "default_traveler_form": default_traveler_form,
             "fulfillment_checklist": fulfillment_checklist,
+            "addon_gap_items": addon_gap_items,
+            "default_voucher_tab": default_voucher_tab,
             "exception_reason_presets": EXCEPTION_REASON_PRESETS,
             "suggested_price": suggested_price,
             "payment_methods": PAYMENT_METHODS,
