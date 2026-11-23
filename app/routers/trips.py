@@ -17,6 +17,7 @@ from app.auth import (
 from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
 from app.database import get_db
 from app.models import Agent, OrderQuote, TripPlan, User
+from app.services.mailer import send_quoting_request_email
 from app.services.planner import (
     LEAGUE_OPTIONS,
     LEAGUE_OPTION_BY_PATH,
@@ -525,23 +526,30 @@ def confirm_trip_plan(
             return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
 
     trip.status = "CONFIRMED"
+    agent = db.get(Agent, DEFAULT_AGENT_ID)
     if existing_order is None:
-        agent = db.get(Agent, DEFAULT_AGENT_ID)
-        db.add(
-            OrderQuote(
-                trip_id=trip.trip_id,
-                agent_id=agent.agent_id if agent else None,
-                order_type="MAIN_TRIP",
-                quoted_price=None,
-                order_status="QUOTING",
-            )
+        existing_order = OrderQuote(
+            trip_id=trip.trip_id,
+            agent_id=agent.agent_id if agent else None,
+            order_type="MAIN_TRIP",
+            quoted_price=None,
+            order_status="QUOTING",
         )
+        db.add(existing_order)
     db.commit()
+    db.refresh(existing_order)
+
+    mail_res = send_quoting_request_email(
+        order=existing_order,
+        trip=trip,
+        user=current_user,
+        agent=agent or existing_order.agent,
+    )
 
     set_flash(
         request,
         "success",
-        "已確認行程大架構！系統已自動送出待報價詢價單給訂票專員 (AG001)。",
+        f"已確認行程大架構！已建立待報價詢價單 #{existing_order.order_id} 送交訂票專員 ({existing_order.agent_id or 'AG001'})。{mail_res['note']}",
     )
     return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
 

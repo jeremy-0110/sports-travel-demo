@@ -16,8 +16,9 @@ from app.auth import (
 )
 from app.config import BASE_DIR, SESSION_SECRET_KEY, SUPPORTED_LEAGUES
 from app.database import get_db, init_db
-from app.models import Agent, TripPlan, User
+from app.models import Agent, OrderQuote, TripPlan, User
 from app.routers.auth import router as auth_router
+from app.routers.orders import router as orders_router
 from app.routers.trips import router as trips_router
 
 
@@ -44,6 +45,7 @@ app.state.templates = templates
 
 app.include_router(auth_router)
 app.include_router(trips_router)
+app.include_router(orders_router)
 
 
 @app.get("/health")
@@ -82,6 +84,28 @@ def home(request: Request, db: Session = Depends(get_db)):
         if active_role == "agent"
         else []
     )
+    all_orders = (
+        db.query(OrderQuote).order_by(OrderQuote.order_id.desc()).all()
+        if active_role == "agent"
+        else []
+    )
+    quoting_count = sum(1 for o in all_orders if o.order_status == "QUOTING")
+    paid_count = sum(1 for o in all_orders if o.order_status in ("PAID", "BOOKED"))
+
+    user_trip_orders: dict[int, OrderQuote] = {}
+    if current_user is not None:
+        member_orders = (
+            db.query(OrderQuote)
+            .join(TripPlan, OrderQuote.trip_id == TripPlan.trip_id)
+            .filter(
+                TripPlan.user_id == current_user.user_id,
+                OrderQuote.order_type == "MAIN_TRIP",
+            )
+            .order_by(OrderQuote.order_id.asc())
+            .all()
+        )
+        for ord_item in member_orders:
+            user_trip_orders[ord_item.trip_id] = ord_item
 
     return templates.TemplateResponse(
         request=request,
@@ -96,6 +120,10 @@ def home(request: Request, db: Session = Depends(get_db)):
             "trips_count": trips_count,
             "user_trips": user_trips,
             "all_trips": all_trips,
+            "all_orders": all_orders,
+            "quoting_count": quoting_count,
+            "paid_count": paid_count,
+            "user_trip_orders": user_trip_orders,
             "supported_leagues": SUPPORTED_LEAGUES,
             "flash": pop_flash(request),
         },

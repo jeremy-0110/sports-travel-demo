@@ -13,20 +13,33 @@
     <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-900 flex flex-wrap items-center justify-between gap-3">
       <div>
         <strong>訂票專員視角 ({{ active_agent.agent_id if active_agent else 'AG001' }}) 預覽：</strong>
-        此筆需求由會員 {% if trip_owner %}{{ trip_owner.full_name }}（{{ trip_owner.email }}）{% else %}User #{{ trip.user_id }}{% endif %} 建立，目前行程狀態為 <strong>{{ trip.status }}</strong>。Phase 3 將開放專員於此開立「一口價報價單（無訂金）」。
+        此筆需求由會員 {% if trip_owner %}{{ trip_owner.full_name }}（{{ trip_owner.email }}）{% else %}User #{{ trip.user_id }}{% endif %} 建立，目前行程狀態為 <strong>{{ trip.status }}</strong>。
+        {% if main_order %}
+          關聯訂單 <strong>#{{ main_order.order_id }}</strong>（{{ main_order.order_status }}）。
+        {% endif %}
       </div>
-      <form
-        action="/trips/{{ trip.trip_id }}/delete"
-        method="post"
-        onsubmit="return confirm('確定要永久刪除此筆行程與關聯訂單嗎？');"
-      >
-        <button
-          type="submit"
-          class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+      <div class="flex flex-wrap items-center gap-2">
+        {% if main_order %}
+          <a
+            href="/orders/{{ main_order.order_id }}"
+            class="px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold transition"
+          >
+            {{ '開立／修改一口價報價單' if main_order.order_status in ('QUOTING', 'QUOTED') else '檢視訂單與交易收據' }}
+          </a>
+        {% endif %}
+        <form
+          action="/trips/{{ trip.trip_id }}/delete"
+          method="post"
+          onsubmit="return confirm('確定要永久刪除此筆行程與關聯訂單嗎？');"
         >
-          專員刪單
-        </button>
-      </form>
+          <button
+            type="submit"
+            class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+          >
+            專員刪單
+          </button>
+        </form>
+      </div>
     </div>
   {% endif %}
 
@@ -162,20 +175,44 @@
   {% endif %}
 
   {% if main_order %}
-    <div class="{% if main_order.order_status == 'CANCELLED' %}bg-slate-100 border-slate-300{% else %}bg-emerald-50 border-emerald-200{% endif %} border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div class="{% if main_order.order_status == 'CANCELLED' %}bg-slate-100 border-slate-300{% elif main_order.order_status == 'QUOTED' %}bg-amber-50 border-amber-200{% else %}bg-emerald-50 border-emerald-200{% endif %} border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <div class="text-xs font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% else %}text-emerald-700{% endif %} uppercase tracking-wider">DFD 3.0 · 詢價／訂單狀態</div>
-        <h2 class="text-base font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-900{% else %}text-emerald-950{% endif %} mt-1">
+        <div class="text-xs font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% elif main_order.order_status == 'QUOTED' %}text-amber-800{% else %}text-emerald-700{% endif %} uppercase tracking-wider">DFD 3.0 · 詢價／訂單狀態</div>
+        <h2 class="text-base font-bold {% if main_order.order_status == 'CANCELLED' %}text-slate-900{% elif main_order.order_status == 'QUOTED' %}text-amber-950{% else %}text-emerald-950{% endif %} mt-1">
           主行程訂單 #{{ main_order.order_id }}（{{ main_order.order_type }}）— 狀態：{{ main_order.order_status }}
         </h2>
-        <p class="text-xs {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% else %}text-emerald-800{% endif %} mt-1">
+        <p class="text-xs {% if main_order.order_status == 'CANCELLED' %}text-slate-600{% elif main_order.order_status == 'QUOTED' %}text-amber-900{% else %}text-emerald-800{% endif %} mt-1">
           指派訂票專員：<strong>{{ main_order.agent_id or 'AG001' }}</strong> ·
           一口價金額：{{ ('NT$ ' ~ "{:,}".format(main_order.quoted_price)) if main_order.quoted_price else ('已隨行程退單取消' if main_order.order_status == 'CANCELLED' else '待專員開立一口價報價單（無訂金）') }}
         </p>
       </div>
-      <span class="inline-flex items-center px-3 py-1.5 rounded-xl bg-white border {% if main_order.order_status == 'CANCELLED' %}border-slate-300 text-rose-700{% else %}border-emerald-200 text-emerald-800{% endif %} text-xs font-semibold">
-        {{ '已退單取消' if main_order.order_status == 'CANCELLED' else '等待專員報價中' }}
-      </span>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="inline-flex items-center px-3 py-1.5 rounded-xl bg-white border {% if main_order.order_status == 'CANCELLED' %}border-slate-300 text-rose-700{% elif main_order.order_status == 'QUOTED' %}border-amber-200 text-amber-800{% else %}border-emerald-200 text-emerald-800{% endif %} text-xs font-semibold">
+          {% if main_order.order_status == 'CANCELLED' %}已退單取消{% elif main_order.order_status == 'PAID' %}已全額付清{% elif main_order.order_status == 'BOOKED' %}已核發憑證{% elif main_order.order_status == 'QUOTED' %}已報價待付款{% else %}等待專員報價中{% endif %}
+        </span>
+        {% if active_role == 'agent' and main_order.order_status in ('QUOTING', 'QUOTED') %}
+          <a
+            href="/orders/{{ main_order.order_id }}"
+            class="inline-flex items-center px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition"
+          >
+            前往開立／修改一口價報價單 →
+          </a>
+        {% elif active_role != 'agent' and main_order.order_status == 'QUOTED' %}
+          <a
+            href="/orders/{{ main_order.order_id }}"
+            class="inline-flex items-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition"
+          >
+            檢視正式報價單並一次付清（NT$ {{ "{:,}".format(main_order.quoted_price) }}）→
+          </a>
+        {% else %}
+          <a
+            href="/orders/{{ main_order.order_id }}"
+            class="inline-flex items-center px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-semibold transition"
+          >
+            {{ '檢視全額付款收據與交易紀錄 →' if main_order.order_status in ('PAID', 'BOOKED') else '檢視訂單詳情 →' }}
+          </a>
+        {% endif %}
+      </div>
     </div>
   {% endif %}
 

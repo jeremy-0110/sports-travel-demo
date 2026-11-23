@@ -43,3 +43,14 @@ LEAGUE_AUTHORITATIVE_DOMAINS: dict[str, tuple[str, ...]] = {
     "歐足五大": ("premierleague.com", "laliga.com", "espn.com"),
     "歐冠": ("uefa.com", "espn.com"),
 }
+
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+try:
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+except ValueError:
+    SMTP_PORT = 465
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD", "").replace(" ", "").strip()
+SMTP_DEMO_TO = os.getenv("SMTP_DEMO_TO", "").strip()
+SMTP_TIMEOUT_SEC = 6
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").strip().rstrip("/")

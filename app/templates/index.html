@@ -47,7 +47,7 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <p class="text-xs font-medium text-slate-500">系統註冊會員數 (D1)</p>
         <p class="text-3xl font-bold text-slate-900 mt-1">{{ users_count }}</p>
@@ -60,12 +60,80 @@
         <p class="text-xs font-medium text-slate-500">會員行程架構總數 (D2)</p>
         <p class="text-3xl font-bold text-sky-700 mt-1">{{ trips_count }}</p>
       </div>
+      <div class="bg-white rounded-xl border border-amber-200 p-5 shadow-xs">
+        <p class="text-xs font-medium text-slate-500">待開價詢價單 (QUOTING)</p>
+        <p class="text-3xl font-bold text-amber-600 mt-1">{{ quoting_count }}</p>
+        <p class="text-[11px] text-slate-400 mt-1">已付清訂單：{{ paid_count }} 筆</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-emerald-200 shadow-xs overflow-hidden">
+      <div class="px-6 py-4 border-b border-emerald-100 bg-emerald-50/40 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-base font-bold text-slate-900">DFD 3.0 · 專員報價與訂單管理表 (D3)</h2>
+        <span class="text-xs text-emerald-800 font-medium">共 {{ all_orders|length }} 筆訂單（無訂金・一口價作業）</span>
+      </div>
+      {% if all_orders %}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+              <tr>
+                <th class="px-6 py-3">訂單編號</th>
+                <th class="px-6 py-3">關聯行程 / 會員</th>
+                <th class="px-6 py-3">類型 / 專員</th>
+                <th class="px-6 py-3">一口價金額</th>
+                <th class="px-6 py-3">訂單狀態</th>
+                <th class="px-6 py-3 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for ord in all_orders %}
+                <tr class="hover:bg-slate-50">
+                  <td class="px-6 py-3 font-bold text-slate-900">#{{ ord.order_id }}</td>
+                  <td class="px-6 py-3">
+                    <a href="/trips/{{ ord.trip_id }}" class="font-semibold text-sky-700 hover:underline">
+                      行程 #{{ ord.trip_id }}
+                    </a>
+                    {% if ord.trip_plan %}
+                      <span class="ml-1.5 px-2 py-0.5 rounded bg-sky-50 text-sky-700 text-xs font-medium">{{ ord.trip_plan.league_type }}</span>
+                      {% if ord.trip_plan.user %}
+                        <div class="text-xs text-slate-500 mt-0.5">{{ ord.trip_plan.user.full_name }}（{{ ord.trip_plan.user.email }}）</div>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                  <td class="px-6 py-3 text-xs text-slate-700">
+                    <div>{{ ord.order_type }}</div>
+                    <div class="text-slate-500">專員：{{ ord.agent_id or 'AG001' }}</div>
+                  </td>
+                  <td class="px-6 py-3 font-bold {% if ord.quoted_price %}text-slate-900{% else %}text-amber-700{% endif %}">
+                    {{ ('NT$ ' ~ "{:,}".format(ord.quoted_price)) if ord.quoted_price else '待開立報價' }}
+                  </td>
+                  <td class="px-6 py-3">
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if ord.order_status == 'PAID' or ord.order_status == 'BOOKED' %}bg-emerald-100 text-emerald-800{% elif ord.order_status == 'QUOTED' %}bg-amber-100 text-amber-800{% elif ord.order_status == 'CANCELLED' %}bg-rose-100 text-rose-800{% elif ord.order_status == 'REFUNDED' %}bg-purple-100 text-purple-800{% else %}bg-slate-100 text-slate-700{% endif %}">
+                      {{ ord.order_status }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-3 text-right">
+                    <a
+                      href="/orders/{{ ord.order_id }}"
+                      class="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTING' %}bg-emerald-700 hover:bg-emerald-600 text-white{% elif ord.order_status == 'QUOTED' %}bg-amber-100 hover:bg-amber-200 text-amber-900{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
+                    >
+                      {% if ord.order_status == 'QUOTING' %}開立一口價報價單{% elif ord.order_status == 'QUOTED' %}調整報價{% else %}檢視訂單明細{% endif %}
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="px-6 py-8 text-center text-sm text-slate-500">目前尚無待報價或進行中之訂單（需會員確認行程大架構後自動產生）。</p>
+      {% endif %}
     </div>
 
     <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
       <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-        <h2 class="text-base font-bold text-slate-900">全站會員行程需求清單 (D2 預覽)</h2>
-        <span class="text-xs text-slate-500">將於 Phase 3 串接「開立一口價報價單」作業</span>
+        <h2 class="text-base font-bold text-slate-900">全站會員行程需求清單 (D2)</h2>
+        <span class="text-xs text-slate-500">共 {{ all_trips|length }} 筆行程架構</span>
       </div>
       {% if all_trips %}
         <div class="overflow-x-auto">
@@ -95,7 +163,7 @@
                     飯店：{{ '需要' if trip.need_hotel else '自理' }}
                   </td>
                   <td class="px-6 py-3">
-                    <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-amber-50 text-amber-800{% endif %} text-xs font-semibold">{{ trip.status }}</span>
+                    <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'LOCKED' %}bg-indigo-50 text-indigo-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-amber-50 text-amber-800{% endif %} text-xs font-semibold">{{ trip.status }}</span>
                   </td>
                   <td class="px-6 py-3 text-right">
                     <div class="inline-flex items-center gap-2">
@@ -250,11 +318,13 @@
                   <th class="px-6 py-3">旅遊日期</th>
                   <th class="px-6 py-3">代訂項目</th>
                   <th class="px-6 py-3">目前狀態</th>
+                  <th class="px-6 py-3">正式一口價／訂單</th>
                   <th class="px-6 py-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 {% for trip in user_trips %}
+                  {% set ord = user_trip_orders.get(trip.trip_id) if user_trip_orders is defined else None %}
                   <tr class="hover:bg-slate-50">
                     <td class="px-6 py-3 font-semibold text-slate-900">#{{ trip.trip_id }}</td>
                     <td class="px-6 py-3">
@@ -265,7 +335,24 @@
                       球賽門票{% if trip.need_flight %} ＋ 機票{% endif %}{% if trip.need_hotel %} ＋ 飯店{% endif %}
                     </td>
                     <td class="px-6 py-3">
-                      <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-700{% endif %} text-xs font-semibold">{{ trip.status }}</span>
+                      <span class="px-2 py-0.5 rounded-full {% if trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'LOCKED' %}bg-indigo-50 text-indigo-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-700{% endif %} text-xs font-semibold">{{ trip.status }}</span>
+                    </td>
+                    <td class="px-6 py-3 text-xs">
+                      {% if ord %}
+                        {% if ord.order_status == 'QUOTED' %}
+                          <span class="font-bold text-amber-700">NT$ {{ "{:,}".format(ord.quoted_price) }}</span>
+                          <span class="block text-[11px] text-amber-600">待一次付清 (#{{ ord.order_id }})</span>
+                        {% elif ord.order_status in ('PAID', 'BOOKED') %}
+                          <span class="font-bold text-emerald-700">NT$ {{ "{:,}".format(ord.quoted_price or 0) }}</span>
+                          <span class="block text-[11px] text-emerald-600">{{ ord.order_status }} · 已鎖定</span>
+                        {% elif ord.order_status == 'QUOTING' %}
+                          <span class="text-slate-600 font-medium">待專員報價 (#{{ ord.order_id }})</span>
+                        {% else %}
+                          <span class="text-slate-500">{{ ord.order_status }} (#{{ ord.order_id }})</span>
+                        {% endif %}
+                      {% else %}
+                        <span class="text-slate-400">尚未確認詢價</span>
+                      {% endif %}
                     </td>
                     <td class="px-6 py-3 text-right">
                       <div class="inline-flex items-center gap-2">
@@ -275,6 +362,14 @@
                         >
                           檢視大架構
                         </a>
+                        {% if ord %}
+                          <a
+                            href="/orders/{{ ord.order_id }}"
+                            class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTED' %}bg-indigo-600 hover:bg-indigo-500 text-white{% elif ord.order_status in ('PAID', 'BOOKED') %}bg-emerald-50 hover:bg-emerald-100 text-emerald-700{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
+                          >
+                            {% if ord.order_status == 'QUOTED' %}前往付款{% elif ord.order_status in ('PAID', 'BOOKED') %}檢視收據{% else %}檢視訂單{% endif %}
+                          </a>
+                        {% endif %}
                         {% if trip.status in ('DRAFT', 'CONFIRMED') %}
                           <form
                             action="/trips/{{ trip.trip_id }}/cancel"

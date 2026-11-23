@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+
+{% block title %}訂單 #{{ order.order_id }} 一口價報價與付款 - 體育賽事旅遊規劃與代訂系統{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-4 text-sm">
+      <a href="/" class="text-slate-600 hover:text-slate-900 font-medium">← 返回首頁</a>
+      <a href="/trips/{{ trip.trip_id }}" class="text-sky-700 hover:underline font-medium">
+        檢視行程大架構 #{{ trip.trip_id }}
+      </a>
+    </div>
+    <span class="text-xs text-slate-500">訂單編號 #{{ order.order_id }}（D3 / D4）</span>
+  </div>
+
+  <!-- 訂單與行程摘要卡片 -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="px-2.5 py-0.5 rounded-md bg-sky-50 text-sky-700 text-xs font-bold">{{ order.order_type }}</span>
+          <span class="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">{{ trip.league_type }}</span>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if order.order_status == 'PAID' or order.order_status == 'BOOKED' %}bg-emerald-100 text-emerald-800{% elif order.order_status == 'QUOTED' %}bg-amber-100 text-amber-800{% elif order.order_status == 'CANCELLED' %}bg-rose-100 text-rose-800{% elif order.order_status == 'REFUNDED' %}bg-purple-100 text-purple-800{% else %}bg-slate-100 text-slate-700{% endif %}">
+            訂單狀態：{{ order.order_status }}
+          </span>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if trip.status == 'LOCKED' %}bg-indigo-100 text-indigo-800{% elif trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% else %}bg-slate-100 text-slate-700{% endif %}">
+            行程狀態：{{ trip.status }}
+          </span>
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900">
+          一口價報價單與全額結帳（行程 #{{ trip.trip_id }}）
+        </h1>
+        <p class="text-xs text-slate-500">
+          會員：{% if trip_owner %}{{ trip_owner.full_name }}（{{ trip_owner.email }}）{% else %}User #{{ trip.user_id }}{% endif %}
+          · 旅遊日期：{{ trip.start_date }} ~ {{ trip.end_date }}
+          · 承辦訂票專員：<strong>{{ order.agent_id or 'AG001' }}{% if assigned_agent %}（{{ assigned_agent.agent_name }}）{% endif %}</strong>
+        </p>
+        <p class="text-xs text-slate-500">
+          包含代訂項目：核心賽事門票{% if trip.need_flight %} ＋ 來回國際機票{% endif %}{% if trip.need_hotel %} ＋ 住宿飯店{% endif %}（無訂金・一口價一次付清）
+        </p>
+      </div>
+
+      <div class="rounded-xl border px-5 py-3.5 text-right min-w-[210px] {% if order.order_status == 'PAID' %}bg-emerald-50 border-emerald-200{% elif order.quoted_price %}bg-amber-50 border-amber-200{% else %}bg-slate-50 border-slate-200{% endif %}">
+        <div class="text-xs font-semibold {% if order.order_status == 'PAID' %}text-emerald-700{% elif order.quoted_price %}text-amber-800{% else %}text-slate-500{% endif %}">
+          {% if order.order_status == 'PAID' %}已全額付清（一口價）{% else %}正式一口價總額（無訂金）{% endif %}
+        </div>
+        <div class="text-2xl font-extrabold text-slate-900 mt-0.5">
+          {% if order.quoted_price %}
+            NT$ {{ "{:,}".format(order.quoted_price) }}
+          {% else %}
+            待專員報價
+          {% endif %}
+        </div>
+        {% if draft and draft.estimated_budget_twd %}
+          <div class="text-[11px] text-slate-500 mt-1">
+            AI 原參考預估：NT$ {{ "{:,}".format(draft.estimated_budget_twd) }}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if draft and draft.matches %}
+      <div class="mt-4 pt-4 border-t border-slate-100">
+        <div class="text-xs font-bold text-slate-700 mb-2">已鎖定納入報價之觀賽場次（{{ draft.matches|length }} 場）</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {% for m in draft.matches %}
+            <div class="rounded-xl bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-xs">
+              <div class="font-bold text-slate-900">{{ m.date }} · {{ m.matchup }}</div>
+              <div class="text-slate-500 mt-0.5">{{ m.venue }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- 訂票專員視角：DFD 3.0 開立／調整一口價報價單 -->
+  {% if active_role == 'agent' %}
+    <div class="bg-white rounded-2xl border border-emerald-200 shadow-xs p-6 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <span class="inline-block text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+            DFD 3.0 · 訂票專員報價工作區（{{ active_agent.agent_id if active_agent else 'AG001' }}）
+          </span>
+          <h2 class="text-lg font-bold text-slate-900 mt-1">
+            {% if order.order_status == 'QUOTED' %}檢視或修正正式一口價報價單{% elif order.order_status in ('QUOTING',) %}開立正式一口價報價單（無訂金）{% else %}訂單狀態已鎖定（{{ order.order_status }}）{% endif %}
+          </h2>
+        </div>
+      </div>
+
+      {% if order.order_status in ('QUOTING', 'QUOTED') %}
+        <form action="/orders/{{ order.order_id }}/quote" method="post" class="space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label for="quoted_price" class="block text-xs font-bold text-slate-700 mb-1.5">
+                正式一口價金額（新台幣 TWD，無訂金）
+              </label>
+              <input
+                id="quoted_price"
+                name="quoted_price"
+                type="number"
+                min="1000"
+                max="5000000"
+                step="100"
+                required
+                value="{{ suggested_price }}"
+                class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <p class="text-[11px] text-slate-500 mt-1">可依實際票價／匯率微調（範圍 NT$ 1,000 ~ 5,000,000）。</p>
+            </div>
+            <div class="md:col-span-2">
+              <label for="quote_note" class="block text-xs font-bold text-slate-700 mb-1.5">
+                給會員的報價說明／席次與航段備註（選填，將一併寫入 Email 通知信）
+              </label>
+              <input
+                id="quote_note"
+                name="quote_note"
+                type="text"
+                maxlength="300"
+                placeholder="例如：含下層看台保證相鄰雙人席、直飛經濟艙來回含 23kg 託運及市區四星飯店含早"
+                class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <span class="text-xs text-slate-500">
+              送出後訂單將轉為 <strong>QUOTED</strong>，並自動透過 Gmail SMTP（未設定時自動降級本機防呆）發送一口價通知信給會員。
+            </span>
+            <button
+              type="submit"
+              class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-sm transition cursor-pointer"
+            >
+              {% if order.order_status == 'QUOTED' %}更新一口價並重發通知信{% else %}開立正式一口價報價單（發送通知信）{% endif %}
+            </button>
+          </div>
+        </form>
+      {% elif order.order_status == 'PAID' %}
+        <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900">
+          <strong>會員已全額付清！</strong>本訂單已由模擬金流收款（{% if latest_success_txn %}交易編號 <code>{{ latest_success_txn.gateway_ref }}</code>{% endif %}），請於 Phase 4「真人代訂作業」進行實際訂票並核發類 Agoda 憑證。
+        </div>
+      {% else %}
+        <div class="rounded-xl bg-slate-100 border border-slate-200 p-4 text-sm text-slate-700">
+          此訂單目前為 <strong>{{ order.order_status }}</strong> 狀態，無法開立新報價單。
+        </div>
+      {% endif %}
+    </div>
+
+  <!-- 會員視角：DFD 4.0 模擬第三方金流一次付清 -->
+  {% else %}
+    {% if order.order_status == 'QUOTING' %}
+      <div class="rounded-2xl bg-amber-50 border border-amber-200 p-6 space-y-2">
+        <div class="text-xs font-bold text-amber-800 uppercase tracking-wider">等待專員核算中（QUOTING）</div>
+        <h2 class="text-base font-bold text-amber-950">訂票專員 {{ order.agent_id or 'AG001' }} 正在核對即時球票與機酒費用</h2>
+        <p class="text-xs text-amber-900">
+          專員開立「一口價報價單（無訂金）」後，系統將立刻寄送通知信至您的會員信箱；屆時您可切換或重整本頁，進行全額模擬付款。
+          <span class="font-semibold">（展示提示：請點右上角「切換至專員視角 (AG001)」輸入一口價金額並送出）</span>
+        </p>
+      </div>
+    {% elif order.order_status == 'QUOTED' %}
+      <div class="bg-white rounded-2xl border border-indigo-200 shadow-xs p-6 space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span class="inline-block text-[11px] font-bold uppercase tracking-wider text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
+              DFD 4.0 · 模擬第三方金流全額結帳（無訂金・一次付清）
+            </span>
+            <h2 class="text-lg font-bold text-slate-900 mt-1">請確認正式一口價金額並完成線上付款</h2>
+          </div>
+          <div class="text-right">
+            <span class="text-xs text-slate-500">本次應付總額</span>
+            <div class="text-xl font-extrabold text-indigo-700">NT$ {{ "{:,}".format(order.quoted_price) }}</div>
+          </div>
+        </div>
+
+        <form action="/orders/{{ order.order_id }}/pay" method="post" class="space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label for="payment_method" class="block text-xs font-bold text-slate-700 mb-1.5">選擇模擬付款方式</label>
+              <select
+                id="payment_method"
+                name="payment_method"
+                class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {% for code, label in payment_methods.items() %}
+                  <option value="{{ code }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div>
+              <span class="block text-xs font-bold text-slate-700 mb-1.5">展示用金流測試結果選項</span>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs font-semibold text-emerald-900 cursor-pointer">
+                  <input type="radio" name="simulate_outcome" value="SUCCESS" checked class="text-emerald-600 focus:ring-emerald-500" />
+                  模擬交易成功
+                </label>
+                <label class="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2.5 text-xs font-semibold text-rose-900 cursor-pointer">
+                  <input type="radio" name="simulate_outcome" value="FAILED" class="text-rose-600 focus:ring-rose-500" />
+                  模擬交易失敗
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div>
+              <span class="text-slate-500 block">預填測試卡號（展示模擬）</span>
+              <span class="font-mono font-bold text-slate-800">4242-4242-4242-4242</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block">有效期限 / 安全碼</span>
+              <span class="font-mono font-bold text-slate-800">12/29 · CVC 888</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block">付款規則說明</span>
+              <span class="font-semibold text-emerald-700">一次付清，不收取任何預付訂金</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <span class="text-xs text-slate-500">
+              付款成功後將立即寫入 D4 金流交易紀錄、鎖定行程並解鎖免費空檔旅遊規劃權限。
+            </span>
+            <button
+              type="submit"
+              class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-sm transition cursor-pointer"
+            >
+              立即全額付款 NT$ {{ "{:,}".format(order.quoted_price) }}
+            </button>
+          </div>
+        </form>
+      </div>
+    {% elif order.order_status in ('PAID', 'BOOKED') %}
+      <div class="rounded-2xl bg-emerald-50 border border-emerald-200 p-6 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="text-xs font-bold text-emerald-800 uppercase tracking-wider">✓ 全額付款完成 · 免費空檔行程已解鎖</div>
+          <span class="px-2.5 py-0.5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-xs font-semibold">
+            TripPlan 狀態：{{ trip.status }}
+          </span>
+        </div>
+        <h2 class="text-lg font-bold text-emerald-950">
+          感謝您！訂單 #{{ order.order_id }} 已全額付清 NT$ {{ "{:,}".format(order.quoted_price or 0) }}
+        </h2>
+        <p class="text-xs text-emerald-900 leading-relaxed">
+          系統已自動將您的需求派單給專屬訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 執行球票與機酒實質代訂（Phase 4 開放類 Agoda 訂票憑證核發），
+          並同步為您解鎖 <strong>免費空檔行程規劃權限（Phase 5 開放空檔與景點加購）</strong>。
+          {% if latest_success_txn %}
+            本次付款授權交易編號：<code class="bg-white/80 px-1.5 py-0.5 rounded font-mono">{{ latest_success_txn.gateway_ref }}</code>。
+          {% endif %}
+        </p>
+      </div>
+    {% else %}
+      <div class="rounded-2xl bg-slate-100 border border-slate-300 p-5 text-sm text-slate-700">
+        此筆訂單目前狀態為 <strong>{{ order.order_status }}</strong>，無法執行付款。
+      </div>
+    {% endif %}
+  {% endif %}
+
+  <!-- D4 金流交易紀錄表 (PaymentTxn) -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+      <h2 class="text-base font-bold text-slate-900">D4 金流交易紀錄明細 (PaymentTxn)</h2>
+      <span class="text-xs text-slate-500">共 {{ txns|length }} 筆交易紀錄</span>
+    </div>
+    {% if txns %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-50 text-slate-600 uppercase">
+            <tr>
+              <th class="px-6 py-3">交易 ID</th>
+              <th class="px-6 py-3">交易類型</th>
+              <th class="px-6 py-3">交易金額</th>
+              <th class="px-6 py-3">金流參考編號</th>
+              <th class="px-6 py-3">狀態</th>
+              <th class="px-6 py-3">交易時間 (UTC)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for t in txns %}
+              <tr class="hover:bg-slate-50">
+                <td class="px-6 py-3 font-semibold text-slate-900">#{{ t.txn_id }}</td>
+                <td class="px-6 py-3 font-medium text-slate-700">{{ t.txn_type }}</td>
+                <td class="px-6 py-3 font-bold text-slate-900">NT$ {{ "{:,}".format(t.amount) }}</td>
+                <td class="px-6 py-3 font-mono text-slate-700">{{ t.gateway_ref or '—' }}</td>
+                <td class="px-6 py-3">
+                  <span class="px-2 py-0.5 rounded-full font-semibold {% if t.status == 'SUCCESS' %}bg-emerald-100 text-emerald-800{% else %}bg-rose-100 text-rose-800{% endif %}">
+                    {{ t.status }}
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-slate-500">{{ t.paid_at.strftime('%Y-%m-%d %H:%M:%S') if t.paid_at else '—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="px-6 py-6 text-center text-xs text-slate-500">尚無金流交易紀錄，待專員開價且會員付款後寫入 D4。</p>
+    {% endif %}
+  </div>
+
+  <!-- Email 通知發送憑證（Gmail SMTP / 防呆降級稽核紀錄） -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
+    <details {% if email_logs %}open{% endif %}>
+      <summary class="cursor-pointer text-sm font-bold text-slate-900 flex items-center justify-between">
+        <span>Email 通知寄送紀錄憑證（Gmail SMTP ／ 本機防呆紀錄，共 {{ email_logs|length }} 封）</span>
+        <span class="text-xs font-normal text-sky-700">點擊展開或收合</span>
+      </summary>
+      {% if email_logs %}
+        <div class="mt-3 space-y-2.5">
+          {% for log in email_logs %}
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs space-y-1">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="px-2 py-0.5 rounded font-semibold {% if log.mode == 'gmail_smtp' %}bg-emerald-100 text-emerald-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+                    {{ '真實 Gmail SMTP 已送達' if log.mode == 'gmail_smtp' else '本機防呆 Mock 紀錄' }}
+                  </span>
+                  <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold">{{ log.category }}</span>
+                  <span class="font-bold text-slate-900">{{ log.subject }}</span>
+                </div>
+                <span class="text-slate-500">{{ log.sent_at }}</span>
+              </div>
+              <div class="text-slate-600">
+                收件信箱：<span class="font-mono">{{ log.actual_to }}</span>
+                {% if log.redirected %}（由測試帳號 <span class="font-mono">{{ log.original_to }}</span> 自動轉寄）{% endif %}
+                · {{ log.note }}
+              </div>
+              <div class="text-slate-500 bg-white rounded-lg border border-slate-200 p-2 whitespace-pre-line">{{ log.text_preview }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="mt-3 text-xs text-slate-500">本次服務啟動後本訂單尚未觸發新的 Email 通知紀錄。</p>
+      {% endif %}
+    </details>
+  </div>
+</div>
+{% endblock %}
