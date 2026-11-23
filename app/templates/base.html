@@ -8,7 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="min-h-screen flex flex-col bg-slate-50 text-slate-800">
-  <header class="{% if active_role == 'agent' %}bg-emerald-900{% else %}bg-slate-900{% endif %} text-white shadow-md transition-colors">
+  <header class="print:hidden {% if active_role == 'agent' %}bg-emerald-900{% else %}bg-slate-900{% endif %} text-white shadow-md transition-colors">
     <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <a href="/" class="text-lg font-bold tracking-wide hover:text-amber-300 transition">
@@ -107,7 +107,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="border-t border-slate-200 bg-white">
+  <footer class="print:hidden border-t border-slate-200 bg-white">
     <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
       <p>支援賽事範圍：北美（MLB、NBA）與歐洲（足球五大聯賽、歐冠）</p>
       <p>課程展示 Demo 模式 · 模擬金流與站內通知信箱 · 一口價無訂金流程</p>

@@ -20,6 +20,7 @@ from app.models import Agent, OrderQuote, TripPlan, User
 from app.routers.auth import router as auth_router
 from app.routers.orders import router as orders_router
 from app.routers.trips import router as trips_router
+from app.routers.vouchers import router as vouchers_router
 
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.state.templates = templates
 app.include_router(auth_router)
 app.include_router(trips_router)
 app.include_router(orders_router)
+app.include_router(vouchers_router)
 
 
 @app.get("/health")
@@ -91,6 +93,8 @@ def home(request: Request, db: Session = Depends(get_db)):
     )
     quoting_count = sum(1 for o in all_orders if o.order_status == "QUOTING")
     paid_count = sum(1 for o in all_orders if o.order_status in ("PAID", "BOOKED"))
+    booked_count = sum(1 for o in all_orders if o.order_status == "BOOKED")
+    exception_count = sum(1 for o in all_orders if o.order_status == "EXCEPTION")
 
     user_trip_orders: dict[int, OrderQuote] = {}
     if current_user is not None:
@@ -123,6 +127,8 @@ def home(request: Request, db: Session = Depends(get_db)):
             "all_orders": all_orders,
             "quoting_count": quoting_count,
             "paid_count": paid_count,
+            "booked_count": booked_count,
+            "exception_count": exception_count,
             "user_trip_orders": user_trip_orders,
             "supported_leagues": SUPPORTED_LEAGUES,
             "flash": pop_flash(request),

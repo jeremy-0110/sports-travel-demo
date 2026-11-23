@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+
+{% block title %}官方確認憑證與行程收據 · 訂單 #{{ order.order_id }} - 體育賽事旅遊規劃與代訂系統{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- 列印與返回列 -->
+  <div class="print:hidden flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-4 text-sm">
+      <a href="/orders/{{ order.order_id }}" class="text-slate-600 hover:text-slate-900 font-medium">
+        ← 返回訂單 #{{ order.order_id }}
+      </a>
+      <a href="/trips/{{ trip.trip_id }}" class="text-sky-700 hover:underline font-medium">
+        檢視行程規劃 #{{ trip.trip_id }}
+      </a>
+    </div>
+    {% if voucher_items %}
+      <button
+        type="button"
+        onclick="window.print()"
+        class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+      >
+        列印 ／ 另存 PDF 官方憑證
+      </button>
+    {% endif %}
+  </div>
+
+  <!-- 頂部旅客與確認單總覽橫幅 -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2 text-xs font-bold text-emerald-300 uppercase tracking-wider">
+          <span class="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40">✓ 已確認 CONFIRMED</span>
+          <span>Travel Agency Official Fulfillment Documents</span>
+        </div>
+        <h1 class="text-2xl font-extrabold mt-1.5">官方代訂確認憑證組（機票行程收據・類 Agoda 飯店確認單・聯盟電子球票）</h1>
+        <p class="text-xs text-slate-300 mt-1">
+          以下各類憑證均依航空公司、訂房平台與各大體育聯盟規範格式開立，請於現場報到／驗票時出示對應文件與護照正本。
+        </p>
+      </div>
+      <div class="bg-white/10 border border-white/15 rounded-xl px-4 py-3 text-right text-xs">
+        <div class="text-slate-300">主訂單編號</div>
+        <div class="text-xl font-mono font-bold text-white">#{{ order.order_id }}</div>
+        <div class="text-emerald-300 font-semibold mt-0.5">{{ order.order_status }}</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 text-xs">
+      <div>
+        <span class="text-slate-500 block">旅客護照英文名 / 會員</span>
+        <strong class="text-slate-900 text-sm font-mono">
+          {{ traveler_profile.passport_name if traveler_profile else (trip_owner.full_name if trip_owner else ('User #' ~ trip.user_id)) }}
+        </strong>
+        {% if traveler_profile %}
+          <span class="block text-slate-500 font-mono mt-0.5">
+            Passport: {{ traveler_profile.passport_masked }} ({{ traveler_profile.nationality }})
+          </span>
+        {% endif %}
+      </div>
+      <div>
+        <span class="text-slate-500 block">賽事體系與旅遊期間</span>
+        <strong class="text-slate-900 text-sm">{{ trip.league_type }}</strong>
+        <span class="block text-slate-600 mt-0.5">{{ trip.start_date }} ~ {{ trip.end_date }}</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block">實付一口價總額（無訂金）</span>
+        <strong class="text-emerald-700 text-sm">
+          {{ ('NT$ ' ~ "{:,}".format(order.quoted_price)) if order.quoted_price else '—' }}
+        </strong>
+        <span class="block text-slate-500 mt-0.5">已全額付清</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block">承辦專員 / 電子票信箱</span>
+        <strong class="text-slate-900 text-sm">
+          {{ order.agent_id or 'AG001' }}{% if assigned_agent %} · {{ assigned_agent.agent_name }}{% endif %}
+        </strong>
+        {% if traveler_profile %}
+          <span class="block text-sky-700 font-mono mt-0.5 break-all">{{ traveler_profile.ticket_email }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 依四類真實旅行社格式渲染各張憑證 -->
+  {% if voucher_items %}
+    <div class="space-y-5">
+      {% for item in voucher_items %}
+        {% set v = item.voucher %}
+        {% set d = item.detail %}
+
+        {% if v.category == 'HOTEL' %}
+          <!-- ============ HOTEL: 類 Agoda / Booking.com 飯店入住確認單 ============ -->
+          <div class="bg-white rounded-2xl border border-teal-200 shadow-xs overflow-hidden break-inside-avoid">
+            <div class="bg-teal-700 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-0.5 rounded bg-white/15 text-xs font-bold">飯店入住確認單 · HOTEL VOUCHER</span>
+                <span class="text-xs text-teal-100">Agoda / Booking Style Confirmation</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span>Booking Ref:</span>
+                <code class="px-2.5 py-0.5 rounded bg-white text-teal-900 font-mono font-extrabold">{{ v.booking_code }}</code>
+                <span class="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-900 font-bold text-[10px]">CONFIRMED</span>
+              </div>
+            </div>
+
+            <div class="p-6 space-y-4">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-xl font-extrabold text-slate-900">{{ d.hotel_name or d.title }}</h2>
+                  <p class="text-xs text-slate-500 mt-1">地址：{{ d.hotel_address or d.location }}</p>
+                </div>
+                <div class="text-right text-xs">
+                  <span class="text-slate-400 block">代表住客（Lead Guest）</span>
+                  <strong class="font-mono text-sm text-slate-900">{{ d.guest_name or 'TRAVELER' }}</strong>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-teal-50/70 border border-teal-100 rounded-xl p-4 text-xs">
+                <div class="border-b sm:border-b-0 sm:border-r border-teal-200 pb-2 sm:pb-0 sm:pr-3">
+                  <span class="text-teal-700 font-bold uppercase block">Check-in 入住日期</span>
+                  <div class="text-base font-extrabold text-slate-900 mt-0.5">{{ d.checkin_date or trip.start_date }}</div>
+                  <div class="text-slate-500">{{ d.checkin_time or '15:00 後辦理入住' }}</div>
+                </div>
+                <div class="border-b sm:border-b-0 sm:border-r border-teal-200 pb-2 sm:pb-0 sm:pr-3">
+                  <span class="text-teal-700 font-bold uppercase block">Check-out 退房日期</span>
+                  <div class="text-base font-extrabold text-slate-900 mt-0.5">{{ d.checkout_date or trip.end_date }}</div>
+                  <div class="text-slate-500">{{ d.checkout_time or '11:00 前辦理退房' }}</div>
+                </div>
+                <div>
+                  <span class="text-teal-700 font-bold uppercase block">住宿晚數 / 人數</span>
+                  <div class="text-base font-extrabold text-teal-800 mt-0.5">{{ d.nights or 1 }} 晚 ({{ d.nights or 1 }} Nights)</div>
+                  <div class="text-slate-600">{{ d.guests_count or '2 位成人' }}</div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div class="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                  <span class="text-slate-400 block">確認房型與床型 (Room Type)</span>
+                  <strong class="text-slate-900 text-sm">{{ d.room_type or d.seat_or_room }}</strong>
+                </div>
+                <div class="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                  <span class="text-slate-400 block">餐食方案 (Board Basis)</span>
+                  <strong class="text-slate-900 text-sm">{{ d.meal_plan or '依訂單房價方案' }}</strong>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-xs text-emerald-950">
+                <strong>Note to Hotel Front Desk / PREPAID 預付條款：</strong>
+                {{ d.payment_terms or 'PREPAID — 房費已全額預付，現場無須向旅客收取房費。' }}
+              </div>
+              {% if d.notes %}
+                <p class="text-xs text-slate-500">入住須知：{{ d.notes }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+        {% elif v.category == 'FLIGHT' %}
+          <!-- ============ FLIGHT: 航空公司電子機票行程收據 (E-Ticket) ============ -->
+          <div class="bg-white rounded-2xl border border-sky-200 shadow-xs overflow-hidden break-inside-avoid">
+            <div class="bg-sky-800 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-0.5 rounded bg-white/15 text-xs font-bold">電子機票行程收據 · E-TICKET ITINERARY</span>
+                <span class="text-xs text-sky-100">{{ d.airline or 'International Carrier' }}</span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span>PNR:</span>
+                <code class="px-2 py-0.5 rounded bg-white text-sky-900 font-mono font-extrabold">{{ d.pnr or v.booking_code }}</code>
+                {% if d.eticket_number %}
+                  <span>E-Ticket:</span>
+                  <code class="px-2 py-0.5 rounded bg-sky-950 text-sky-100 font-mono font-bold">{{ d.eticket_number }}</code>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="p-6 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-3 text-xs">
+                <div>
+                  <span class="text-slate-400 block">旅客護照英文姓名 (Passenger Name)</span>
+                  <strong class="text-base font-mono font-extrabold text-slate-900">{{ d.passenger_name or 'PASSENGER' }}</strong>
+                </div>
+                <div class="text-right">
+                  <span class="text-slate-400 block">核驗護照 / 艙等</span>
+                  <strong class="text-slate-800 font-mono">{{ d.passport_masked or 'Passport Verified' }}</strong>
+                  <span class="ml-2 px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-semibold">{{ d.cabin_class or 'Economy' }}</span>
+                </div>
+              </div>
+
+              <div class="rounded-2xl bg-sky-50/70 border border-sky-100 p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                <div class="flex items-center justify-center gap-4 text-center">
+                  <div>
+                    <div class="text-2xl font-mono font-black text-slate-900">{{ d.origin_airport or 'TPE' }}</div>
+                    <div class="text-[11px] text-slate-500">Origin</div>
+                  </div>
+                  <div class="text-sky-600 font-bold text-lg">✈</div>
+                  <div>
+                    <div class="text-2xl font-mono font-black text-slate-900">{{ d.dest_airport or 'DEST' }}</div>
+                    <div class="text-[11px] text-slate-500">Destination</div>
+                  </div>
+                </div>
+                <div class="text-xs space-y-1">
+                  <div class="font-bold text-sky-900">去程航段 · {{ d.outbound_flight_no }}</div>
+                  <div class="text-slate-700">{{ d.outbound_datetime or d.event_date }}</div>
+                </div>
+                <div class="text-xs space-y-1">
+                  <div class="font-bold text-sky-900">回程航段 · {{ d.return_flight_no or '依回程開票聯' }}</div>
+                  <div class="text-slate-700">{{ d.return_datetime or '依開票確認時刻' }}</div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                  <span class="text-slate-400 block">行李額度 (Baggage Allowance)</span>
+                  <strong class="text-slate-900">{{ d.baggage_allowance or '23kg 託運＋7kg 手提' }}</strong>
+                </div>
+                <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                  <span class="text-slate-400 block">機上選位與確認碼 (Seat / Ref)</span>
+                  <strong class="text-slate-900">{{ d.seat_assignment or '已預選座位' }} · {{ v.booking_code }}</strong>
+                </div>
+              </div>
+              {% if d.notes %}
+                <p class="text-xs text-slate-500">搭機提醒：{{ d.notes }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+        {% elif v.category == 'MATCH' %}
+          <!-- ============ MATCH: 各賽事聯盟專屬官方電子球票 (MLB / NBA / EU / UEFA) ============ -->
+          <div class="bg-white rounded-2xl border border-indigo-200 shadow-xs overflow-hidden break-inside-avoid">
+            <div class="bg-indigo-900 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="px-2.5 py-0.5 rounded bg-white/15 text-xs font-bold">官方電子球票 · {{ d.league_format or 'MATCH' }}</span>
+                <span class="text-xs text-indigo-200">{{ d.subtitle or 'Official Match E-Ticket' }}</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <code class="px-2.5 py-0.5 rounded bg-white text-indigo-950 font-mono font-extrabold">{{ v.booking_code }}</code>
+                <span class="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-900 font-bold text-[10px]">VALID</span>
+              </div>
+            </div>
+
+            <div class="p-6 grid grid-cols-1 md:grid-cols-4 gap-5 items-center">
+              <div class="md:col-span-3 space-y-3.5">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h2 class="text-xl font-extrabold text-slate-900">{{ d.matchup or d.title }}</h2>
+                    <p class="text-xs text-slate-600 mt-1">
+                      <strong>開賽時間：</strong>{{ d.event_date }} ｜ <strong>球場：</strong>{{ d.venue or d.location }}
+                    </p>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5 text-[11px] font-bold">
+                    {% if d.requires_id_match %}
+                      <span class="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                        須帶護照正本實名查驗
+                      </span>
+                    {% endif %}
+                    <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+                      動態條碼／嚴禁截圖
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 經典三格 / 四格座位資訊卡 -->
+                {% if d.seat_mode in ('EU', 'UEFA') %}
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Stand 看台</span>
+                      <span class="text-sm font-extrabold text-slate-900">{{ d.stand or 'Main Stand' }}</span>
+                    </div>
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Block 區塊</span>
+                      <span class="text-sm font-extrabold text-indigo-900">{{ d.block }}</span>
+                    </div>
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Row 排</span>
+                      <span class="text-sm font-extrabold text-slate-900">{{ d.row }}</span>
+                    </div>
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Seat 座號</span>
+                      <span class="text-sm font-extrabold text-slate-900">{{ d.seat }}</span>
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="grid grid-cols-3 gap-3 text-center">
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-3 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Section 區</span>
+                      <span class="text-lg font-extrabold text-indigo-900">{{ d.section }}</span>
+                    </div>
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-3 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Row 排</span>
+                      <span class="text-lg font-extrabold text-slate-900">{{ d.row }}</span>
+                    </div>
+                    <div class="rounded-xl bg-indigo-50 border border-indigo-200 py-3 px-2">
+                      <span class="text-[10px] font-bold text-indigo-600 uppercase block">Seat 座號</span>
+                      <span class="text-lg font-extrabold text-slate-900">{{ d.seat }}</span>
+                    </div>
+                  </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <div>
+                    <span class="text-slate-400 block">入口閘門／旋轉門</span>
+                    <strong class="text-slate-900">{{ d.gate_or_turnstile or 'Main Gate' }}</strong>
+                  </div>
+                  <div>
+                    <span class="text-slate-400 block">官方交付方式</span>
+                    <strong class="text-indigo-800">{{ d.delivery_method or 'Official Mobile App' }}</strong>
+                  </div>
+                  <div>
+                    <span class="text-slate-400 block">持票人／領票信箱</span>
+                    <strong class="text-slate-900 font-mono">
+                      {{ d.holder_name or 'TRAVELER' }}
+                      {% if d.holder_passport_masked %} ({{ d.holder_passport_masked }}){% endif %}
+                    </strong>
+                    {% if d.ticket_email %}
+                      <span class="block text-slate-500 font-mono">{{ d.ticket_email }}</span>
+                    {% endif %}
+                  </div>
+                </div>
+
+                {% if d.rule_note or d.notes %}
+                  <p class="text-xs text-slate-600 bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2">
+                    <strong>入場與驗票規定：</strong>{{ d.rule_note or d.notes }}
+                  </p>
+                {% endif %}
+              </div>
+
+              <!-- 右側動態電子球票核銷區 -->
+              <div class="rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 p-4 text-center space-y-2">
+                <div class="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Mobile SafeTix / QR</div>
+                <div class="flex items-end justify-center gap-0.5 h-12 px-2 py-1 bg-white rounded-lg border border-indigo-100" aria-hidden="true">
+                  <span class="w-1 h-9 bg-slate-900"></span>
+                  <span class="w-0.5 h-7 bg-indigo-700"></span>
+                  <span class="w-1.5 h-10 bg-slate-900"></span>
+                  <span class="w-0.5 h-8 bg-slate-800"></span>
+                  <span class="w-1 h-10 bg-indigo-900"></span>
+                  <span class="w-0.5 h-6 bg-slate-600"></span>
+                  <span class="w-1.5 h-9 bg-slate-900"></span>
+                  <span class="w-1 h-8 bg-indigo-800"></span>
+                  <span class="w-0.5 h-10 bg-slate-900"></span>
+                  <span class="w-1.5 h-10 bg-slate-900"></span>
+                </div>
+                <div class="font-mono text-xs font-bold text-slate-900 break-all">{{ v.booking_code }}</div>
+                <div class="text-[10px] text-slate-500">開立於 {{ v.issued_at.strftime('%Y-%m-%d %H:%M') if v.issued_at else '—' }} UTC</div>
+              </div>
+            </div>
+          </div>
+
+        {% else %}
+          <!-- ============ SPOT: 景點門票電子憑證 (Klook / KKday Style) ============ -->
+          <div class="bg-white rounded-2xl border border-amber-200 shadow-xs overflow-hidden break-inside-avoid">
+            <div class="bg-amber-600 text-white px-6 py-3 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-0.5 rounded bg-white/20 text-xs font-bold">景點電子憑證 · ATTRACTION E-VOUCHER</span>
+              </div>
+              <code class="px-2.5 py-0.5 rounded bg-white text-amber-900 font-mono text-xs font-extrabold">{{ v.booking_code }}</code>
+            </div>
+            <div class="p-5 space-y-3 text-xs">
+              <h2 class="text-lg font-extrabold text-slate-900">{{ d.spot_name or d.title }}</h2>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-amber-50/60 border border-amber-100 rounded-xl p-3.5">
+                <div><span class="text-slate-400 block">使用日期</span><strong class="text-slate-900">{{ d.visit_date or d.event_date }}</strong></div>
+                <div><span class="text-slate-400 block">預約時段</span><strong class="text-slate-900">{{ d.time_slot or '全日' }}</strong></div>
+                <div><span class="text-slate-400 block">票種與數量</span><strong class="text-amber-800">{{ d.ticket_type or d.seat_or_room }}</strong></div>
+                <div><span class="text-slate-400 block">入場／集合地點</span><strong class="text-slate-900">{{ d.location }}</strong></div>
+              </div>
+              <p class="text-slate-600"><strong>兌換方式：</strong>{{ d.redemption_method or d.notes }}</p>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
+      <p class="text-sm font-semibold text-slate-700">此訂單目前尚未核發任何訂票憑證。</p>
+      <p class="text-xs text-slate-500">待會員填寫護照並全額付款完成後，請切換至訂票專員視角（AG001）依分類開立專屬憑證。</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

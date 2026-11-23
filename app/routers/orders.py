@@ -1,5 +1,7 @@
 """Agent one-price quote management (DFD 3.0) and mock full-payment routes (DFD 4.0)."""
 
+import json
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
@@ -13,7 +15,17 @@ from app.auth import (
 )
 from app.config import DEFAULT_AGENT_ID
 from app.database import get_db
-from app.models import OrderQuote, PaymentTxn
+from app.models import BookingException, BookingVoucher, OrderQuote, PaymentTxn
+from app.services.fulfillment import (
+    EXCEPTION_REASON_PRESETS,
+    LEAGUE_TICKET_FORMATS,
+    VOUCHER_CATEGORIES,
+    build_voucher_view_items,
+    compute_fulfillment_checklist,
+    get_traveler_profile,
+    infer_league_ticket_format,
+    validate_traveler_profile,
+)
 from app.services.mailer import (
     get_order_email_logs,
     send_payment_failed_email,
@@ -67,6 +79,43 @@ def order_detail_page(
         (t for t in txns if t.status == "SUCCESS" and t.txn_type == "PAYMENT"),
         None,
     )
+    raw_vouchers = (
+        db.query(BookingVoucher)
+        .filter(BookingVoucher.order_id == order.order_id)
+        .order_by(BookingVoucher.voucher_id.asc())
+        .all()
+    )
+    voucher_items = build_voucher_view_items(raw_vouchers)
+    exceptions = (
+        db.query(BookingException)
+        .filter(BookingException.order_id == order.order_id)
+        .order_by(BookingException.exception_id.desc())
+        .all()
+    )
+    pending_exception = next(
+        (e for e in exceptions if e.user_decision == "PENDING"),
+        None,
+    )
+    traveler_profile = get_traveler_profile(draft)
+    fulfillment_checklist = compute_fulfillment_checklist(db, order)
+    default_league_format = infer_league_ticket_format(trip.league_type)
+    default_traveler_form = {
+        "passport_name": (traveler_profile.get("passport_name") if traveler_profile else "") or "",
+        "passport_number": (traveler_profile.get("passport_number") if traveler_profile else "") or "",
+        "nationality": (traveler_profile.get("nationality") if traveler_profile else "") or "Taiwan (TWN)",
+        "birth_date": (traveler_profile.get("birth_date") if traveler_profile else "") or "",
+        "passport_expiry": (traveler_profile.get("passport_expiry") if traveler_profile else "") or "",
+        "contact_phone": (
+            (traveler_profile.get("contact_phone") if traveler_profile else "")
+            or (trip.user.phone if trip.user else "")
+            or ""
+        ),
+        "ticket_email": (
+            (traveler_profile.get("ticket_email") if traveler_profile else "")
+            or (trip.user.email if trip.user else "")
+            or ""
+        ),
+    }
 
     context = build_nav_context(request, db)
     context.update(
@@ -78,6 +127,16 @@ def order_detail_page(
             "draft": draft,
             "txns": txns,
             "latest_success_txn": latest_success_txn,
+            "voucher_items": voucher_items,
+            "exceptions": exceptions,
+            "pending_exception": pending_exception,
+            "voucher_categories": VOUCHER_CATEGORIES,
+            "league_ticket_formats": LEAGUE_TICKET_FORMATS,
+            "default_league_format": default_league_format,
+            "traveler_profile": traveler_profile,
+            "default_traveler_form": default_traveler_form,
+            "fulfillment_checklist": fulfillment_checklist,
+            "exception_reason_presets": EXCEPTION_REASON_PRESETS,
             "suggested_price": suggested_price,
             "payment_methods": PAYMENT_METHODS,
             "email_logs": get_order_email_logs(order.order_id),
@@ -158,9 +217,16 @@ def pay_order(
     request: Request,
     payment_method: str = Form("CREDIT_CARD"),
     simulate_outcome: str = Form("SUCCESS"),
+    passport_name: str = Form(""),
+    passport_number: str = Form(""),
+    nationality: str = Form(""),
+    birth_date: str = Form(""),
+    passport_expiry: str = Form(""),
+    contact_phone: str = Form(""),
+    ticket_email: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """Execute one-shot full-amount mock payment as the trip owner (DFD 4.0)."""
+    """Validate mandatory traveler passport KYC & execute one-shot mock payment (DFD 4.0)."""
     if get_active_role(request) == "agent":
         return PlainTextResponse("請先切換回會員視角再執行付款作業", status_code=403)
 
@@ -188,6 +254,40 @@ def pay_order(
             f"此筆訂單目前狀態為 {order.order_status}（尚未完成報價或已取消），無法付款。",
         )
         return RedirectResponse(url=f"/orders/{order.order_id}", status_code=303)
+
+    draft_dict = parse_draft_json(trip.llm_draft_json) or {}
+    existing_profile = get_traveler_profile(draft_dict)
+    has_submitted_profile_fields = any(
+        val.strip()
+        for val in (passport_name, passport_number, birth_date, passport_expiry)
+    )
+
+    if not has_submitted_profile_fields and existing_profile is not None:
+        validated_profile = existing_profile
+    else:
+        validated_profile, kyc_err = validate_traveler_profile(
+            {
+                "passport_name": passport_name,
+                "passport_number": passport_number,
+                "nationality": nationality,
+                "birth_date": birth_date,
+                "passport_expiry": passport_expiry,
+                "contact_phone": contact_phone,
+                "ticket_email": ticket_email,
+            },
+            trip_end_date=trip.end_date,
+        )
+        if kyc_err is not None or validated_profile is None:
+            set_flash(
+                request,
+                "error",
+                f"旅客護照基本資料未通過檢核（尚未扣款）：{kyc_err}",
+            )
+            return RedirectResponse(url=f"/orders/{order.order_id}", status_code=303)
+
+        draft_dict["traveler_profile"] = validated_profile
+        trip.llm_draft_json = json.dumps(draft_dict, ensure_ascii=False)
+        db.commit()
 
     txn = process_mock_payment(
         db=db,

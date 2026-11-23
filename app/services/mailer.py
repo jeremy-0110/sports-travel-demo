@@ -395,3 +395,215 @@ def send_payment_failed_email(
         category="PAYMENT_FAILED",
         order_id=order.order_id,
     )
+
+
+def send_voucher_issued_email(
+    order: Any,
+    trip: Any,
+    user: Any,
+    agent: Any,
+    vouchers: list[Any],
+) -> dict[str, Any]:
+    """Notify member that Agoda-style booking confirmation vouchers have been issued."""
+    agent_id = getattr(agent, "agent_id", None) or getattr(order, "agent_id", None) or "AG001"
+    agent_name = getattr(agent, "agent_name", None) or "訂票專員"
+    member_name = getattr(user, "full_name", None) or "會員"
+    member_email = getattr(user, "email", None) or ""
+    voucher_url = f"{config.APP_BASE_URL}/orders/{order.order_id}/vouchers"
+
+    code_lines = [f"- [{v.category}] {v.booking_code}" for v in vouchers]
+    subject = f"[訂票憑證已核發] 訂單 #{order.order_id}（{trip.league_type}）共 {len(vouchers)} 張類 Agoda 確認單"
+    text_body = (
+        f"{member_name} 您好：\n"
+        f"您的專屬訂票專員 {agent_id}（{agent_name}）已完成實質代訂作業並核發最新訂票憑證：\n"
+        + "\n".join(code_lines)
+        + f"\n請點擊以下連結檢視完整類 Agoda 確認憑證與條碼明細：\n{voucher_url}"
+    )
+    list_html = "".join(
+        f"<li><strong>{escape(v.category)}</strong>：<code>{escape(v.booking_code)}</code></li>"
+        for v in vouchers
+    )
+    body_html = (
+        f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+        f"<p>訂票專員 <strong>{escape(agent_id)}（{escape(agent_name)}）</strong> 已為您的訂單 <strong>#{order.order_id}</strong> 核發以下類 Agoda 官方確認憑證：</p>"
+        f"<ul>{list_html}</ul>"
+        "<p style=\"color:#065f46;background:#ecfdf5;padding:10px 12px;border-radius:8px;border:1px solid #a7f3d0;\">"
+        "✓ 訂單已進入 BOOKED 完訂狀態，您可隨時線上檢視或列印 PDF 憑證。</p>"
+    )
+    html_body = _wrap_html_card(
+        title=f"訂票成功憑證已核發 · #{order.order_id}",
+        subtitle=f"承辦專員：{agent_id} {agent_name} · 共 {len(vouchers)} 張確認單",
+        body_html=body_html,
+        action_url=voucher_url,
+        action_label="開啟類 Agoda 訂票憑證確認單",
+    )
+    return send_notification_email(
+        to_email=member_email,
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+        category="VOUCHER_ISSUED",
+        order_id=order.order_id,
+    )
+
+
+def send_exception_alert_email(
+    order: Any,
+    trip: Any,
+    user: Any,
+    agent: Any,
+    exc: Any,
+) -> dict[str, Any]:
+    """Notify member of a booking exception with an alternative proposal or full refund choice."""
+    agent_id = getattr(agent, "agent_id", None) or getattr(order, "agent_id", None) or "AG001"
+    agent_name = getattr(agent, "agent_name", None) or "訂票專員"
+    member_name = getattr(user, "full_name", None) or "會員"
+    member_email = getattr(user, "email", None) or ""
+    order_url = f"{config.APP_BASE_URL}/orders/{order.order_id}"
+
+    subject = f"[訂票異常處理通知] 訂單 #{order.order_id}（{trip.league_type}）請選擇替代方案或全額退款"
+    text_body = (
+        f"{member_name} 您好：\n"
+        f"專員 {agent_id}（{agent_name}）於代訂訂單 #{order.order_id} 時遇到以下狀況：\n"
+        f"異常原因：{exc.reason}\n"
+        f"專員建議替代方案：{exc.alternative_proposal}\n"
+        f"請登入訂單頁面決定「接受替代方案繼續代訂」或「申請全額退款」：\n{order_url}"
+    )
+    body_html = (
+        f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+        f"<p>承辦專員 <strong>{escape(agent_id)}（{escape(agent_name)}）</strong> 執行訂單 <strong>#{order.order_id}</strong> 實質代訂時回報以下異常狀況：</p>"
+        "<div style=\"background:#fff1f2;border:1px solid #fecdd3;border-radius:10px;padding:12px 14px;margin:10px 0;\">"
+        f"<div><strong>異常原因：</strong>{escape(exc.reason)}</div>"
+        f"<div style=\"margin-top:6px;\"><strong>專員替代方案：</strong>{escape(exc.alternative_proposal)}</div>"
+        "</div>"
+        "<p>請立即前往系統訂單頁面選擇【接受替代方案（繼續代訂）】或【不接受，立即全額模擬退款】。</p>"
+    )
+    html_body = _wrap_html_card(
+        title=f"訂票異常通知 · 請確認處理方式 (#{order.order_id})",
+        subtitle=f"異常單 #{exc.exception_id} · 待會員抉擇",
+        body_html=body_html,
+        action_url=order_url,
+        action_label="立即前往決定替代方案或退款",
+    )
+    return send_notification_email(
+        to_email=member_email,
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+        category="EXCEPTION_ALERT",
+        order_id=order.order_id,
+    )
+
+
+def send_exception_resolved_emails(
+    order: Any,
+    trip: Any,
+    user: Any,
+    agent: Any,
+    exc: Any,
+    refund_txn: Any = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Send resolution emails to member & agent after ALT acceptance or REFUND completion."""
+    agent_id = getattr(agent, "agent_id", None) or getattr(order, "agent_id", None) or "AG001"
+    agent_name = getattr(agent, "agent_name", None) or "訂票專員"
+    agent_email = getattr(agent, "email", None) or ""
+    member_name = getattr(user, "full_name", None) or "會員"
+    member_email = getattr(user, "email", None) or ""
+    order_url = f"{config.APP_BASE_URL}/orders/{order.order_id}"
+
+    if exc.user_decision == "ALT":
+        member_res = send_notification_email(
+            to_email=member_email,
+            subject=f"[異常處理確認] 訂單 #{order.order_id} 已接受替代方案並恢復代訂",
+            html_body=_wrap_html_card(
+                title=f"已接受替代方案 · 訂單 #{order.order_id}",
+                subtitle="專員將依替代方案繼續代訂並核發憑證",
+                body_html=(
+                    f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+                    f"<p>您已確認接受訂單 <strong>#{order.order_id}</strong> 之替代方案：</p>"
+                    f"<p style=\"background:#f8fafc;border:1px solid #e2e8f0;padding:10px 12px;border-radius:8px;\">{escape(exc.alternative_proposal or '')}</p>"
+                    f"<p>訂單已恢復為 <strong>PAID</strong>，專員 {escape(agent_id)} 將盡速為您核發類 Agoda 訂票憑證。</p>"
+                ),
+                action_url=order_url,
+                action_label="檢視訂單進度",
+            ),
+            text_body=(
+                f"{member_name} 您好：您已選擇接受訂單 #{order.order_id} 之替代方案，"
+                f"系統已恢復訂單為 PAID 並通知專員 {agent_id} 繼續代訂。\n查看：{order_url}"
+            ),
+            category="EXCEPTION_ALT_ACCEPTED",
+            order_id=order.order_id,
+        )
+        agent_res = send_notification_email(
+            to_email=agent_email,
+            subject=f"[會員異常處理指示] 訂單 #{order.order_id} 已同意替代方案（ALT），請繼續核發憑證",
+            html_body=_wrap_html_card(
+                title=f"會員已接受替代方案 · 訂單 #{order.order_id}",
+                subtitle=f"異常單 #{exc.exception_id} · 指示代碼 ALT",
+                body_html=(
+                    f"<p><strong>{escape(agent_name)}（{escape(agent_id)}）您好：</strong></p>"
+                    f"<p>會員 <strong>{escape(member_name)}</strong> 已於系統確認接受您提出的替代方案（<code>{escape(exc.alternative_proposal or '')}</code>）。</p>"
+                    "<p>訂單狀態已恢復為 <strong>PAID</strong>，請依核准方案執行代訂並核發類 Agoda 訂票憑證。</p>"
+                ),
+                action_url=order_url,
+                action_label="前往核發訂票憑證",
+            ),
+            text_body=(
+                f"{agent_name}（{agent_id}）您好：會員 {member_name} 已接受訂單 #{order.order_id} 之替代方案，"
+                f"請繼續代訂並核發憑證。\n訂單頁：{order_url}"
+            ),
+            category="EXCEPTION_USER_DIRECTIVE",
+            order_id=order.order_id,
+        )
+        return member_res, agent_res
+
+    amount_str = f"NT$ {refund_txn.amount:,}" if refund_txn else f"NT$ {order.quoted_price or 0:,}"
+    ref_code = getattr(refund_txn, "gateway_ref", None) or "MOCK-REF"
+    member_res = send_notification_email(
+        to_email=member_email,
+        subject=f"[全額退款完成通知] 訂單 #{order.order_id} 已退還 {amount_str}",
+        html_body=_wrap_html_card(
+            title=f"全額退款已完成 · 訂單 #{order.order_id}",
+            subtitle=f"退款參考號：{ref_code}",
+            body_html=(
+                f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+                f"<p>我們已依您的異常處理決定，透過第三方金流完成訂單 <strong>#{order.order_id}</strong> 的全額模擬退款：</p>"
+                "<ul>"
+                f"<li>退款金額：<strong>{amount_str}</strong></li>"
+                f"<li>退款參考號：<code>{escape(ref_code)}</code></li>"
+                "<li>訂單狀態：REFUNDED（關聯主行程亦已關閉）</li>"
+                "</ul>"
+            ),
+            action_url=order_url,
+            action_label="檢視 D4 退款交易紀錄",
+        ),
+        text_body=(
+            f"{member_name} 您好：訂單 #{order.order_id} 已完成全額退款 {amount_str}"
+            f"（退款參考號 {ref_code}）。\n查看交易明細：{order_url}"
+        ),
+        category="REFUND_SUCCESS",
+        order_id=order.order_id,
+    )
+    agent_res = send_notification_email(
+        to_email=agent_email,
+        subject=f"[異常結案 · 會員選擇全額退款] 訂單 #{order.order_id} 已轉為 REFUNDED",
+        html_body=_wrap_html_card(
+            title=f"會員申請全額退款結案 · #{order.order_id}",
+            subtitle=f"異常單 #{exc.exception_id} · 指示代碼 REFUND",
+            body_html=(
+                f"<p><strong>{escape(agent_name)}（{escape(agent_id)}）您好：</strong></p>"
+                f"<p>會員 {escape(member_name)} 針對異常單 #{exc.exception_id} 選擇申請全額退款（{amount_str}），"
+                f"金流退款交易 <code>{escape(ref_code)}</code> 已完成，本訂單已結案。</p>"
+            ),
+            action_url=order_url,
+            action_label="檢視結案訂單",
+        ),
+        text_body=(
+            f"{agent_name}（{agent_id}）您好：會員 {member_name} 已選擇針對訂單 #{order.order_id} 全額退款，"
+            f"交易 {ref_code} 完成，無需再進行代訂。"
+        ),
+        category="EXCEPTION_REFUND_CLOSED",
+        order_id=order.order_id,
+    )
+    return member_res, agent_res
+

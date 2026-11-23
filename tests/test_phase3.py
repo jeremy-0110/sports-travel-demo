@@ -210,10 +210,31 @@ def test_member_payment_failed_then_success_and_idempotency(isolated_client):
     assert "NT$ 78,800" in order_page.text
     assert "立即全額付款" in order_page.text
 
-    # 1. Simulate FAILED payment attempt
+    # 0. Missing passport KYC must block payment cleanly without charging
+    missing_kyc = client.post(
+        f"/orders/{order_id}/pay",
+        data={"payment_method": "CREDIT_CARD", "simulate_outcome": "SUCCESS"},
+        follow_redirects=True,
+    )
+    assert missing_kyc.status_code == 200
+    assert "旅客護照基本資料未通過檢核" in missing_kyc.text
+    with SessionLocal() as db:
+        assert db.query(PaymentTxn).filter(PaymentTxn.order_id == order_id).count() == 0
+
+    valid_kyc = {
+        "passport_name": "CHEN, DAMING",
+        "passport_number": "312345678",
+        "nationality": "Taiwan (TWN)",
+        "birth_date": "1995-06-15",
+        "passport_expiry": "2032-12-31",
+        "contact_phone": "0912-345-678",
+        "ticket_email": "demo@example.com",
+    }
+
+    # 1. Simulate FAILED payment attempt (with valid KYC persisted)
     fail_res = client.post(
         f"/orders/{order_id}/pay",
-        data={"payment_method": "CREDIT_CARD", "simulate_outcome": "FAILED"},
+        data={"payment_method": "CREDIT_CARD", "simulate_outcome": "FAILED", **valid_kyc},
         follow_redirects=True,
     )
     assert fail_res.status_code == 200

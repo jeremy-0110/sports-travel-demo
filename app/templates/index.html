@@ -63,7 +63,9 @@
       <div class="bg-white rounded-xl border border-amber-200 p-5 shadow-xs">
         <p class="text-xs font-medium text-slate-500">待開價詢價單 (QUOTING)</p>
         <p class="text-3xl font-bold text-amber-600 mt-1">{{ quoting_count }}</p>
-        <p class="text-[11px] text-slate-400 mt-1">已付清訂單：{{ paid_count }} 筆</p>
+        <p class="text-[11px] text-slate-400 mt-1">
+          已付/完訂：{{ paid_count }}（已出憑證 {{ booked_count|default(0) }}）· 異常：{{ exception_count|default(0) }}
+        </p>
       </div>
     </div>
 
@@ -108,17 +110,27 @@
                     {{ ('NT$ ' ~ "{:,}".format(ord.quoted_price)) if ord.quoted_price else '待開立報價' }}
                   </td>
                   <td class="px-6 py-3">
-                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if ord.order_status == 'PAID' or ord.order_status == 'BOOKED' %}bg-emerald-100 text-emerald-800{% elif ord.order_status == 'QUOTED' %}bg-amber-100 text-amber-800{% elif ord.order_status == 'CANCELLED' %}bg-rose-100 text-rose-800{% elif ord.order_status == 'REFUNDED' %}bg-purple-100 text-purple-800{% else %}bg-slate-100 text-slate-700{% endif %}">
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if ord.order_status in ('PAID', 'BOOKED') %}bg-emerald-100 text-emerald-800{% elif ord.order_status == 'QUOTED' %}bg-amber-100 text-amber-800{% elif ord.order_status in ('CANCELLED', 'EXCEPTION') %}bg-rose-100 text-rose-800{% elif ord.order_status == 'REFUNDED' %}bg-purple-100 text-purple-800{% else %}bg-slate-100 text-slate-700{% endif %}">
                       {{ ord.order_status }}
                     </span>
                   </td>
                   <td class="px-6 py-3 text-right">
-                    <a
-                      href="/orders/{{ ord.order_id }}"
-                      class="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTING' %}bg-emerald-700 hover:bg-emerald-600 text-white{% elif ord.order_status == 'QUOTED' %}bg-amber-100 hover:bg-amber-200 text-amber-900{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
-                    >
-                      {% if ord.order_status == 'QUOTING' %}開立一口價報價單{% elif ord.order_status == 'QUOTED' %}調整報價{% else %}檢視訂單明細{% endif %}
-                    </a>
+                    <div class="inline-flex items-center gap-1.5">
+                      <a
+                        href="/orders/{{ ord.order_id }}"
+                        class="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTING' %}bg-emerald-700 hover:bg-emerald-600 text-white{% elif ord.order_status == 'QUOTED' %}bg-amber-100 hover:bg-amber-200 text-amber-900{% elif ord.order_status == 'PAID' %}bg-indigo-600 hover:bg-indigo-500 text-white{% elif ord.order_status == 'EXCEPTION' %}bg-rose-100 hover:bg-rose-200 text-rose-900{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
+                      >
+                        {% if ord.order_status == 'QUOTING' %}開立一口價報價單{% elif ord.order_status == 'QUOTED' %}調整報價{% elif ord.order_status == 'PAID' %}核發憑證 / 異常處理{% elif ord.order_status == 'EXCEPTION' %}異常待會員決策{% else %}檢視訂單明細{% endif %}
+                      </a>
+                      {% if ord.order_status == 'BOOKED' %}
+                        <a
+                          href="/orders/{{ ord.order_id }}/vouchers"
+                          class="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition"
+                        >
+                          查看憑證
+                        </a>
+                      {% endif %}
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
@@ -342,9 +354,18 @@
                         {% if ord.order_status == 'QUOTED' %}
                           <span class="font-bold text-amber-700">NT$ {{ "{:,}".format(ord.quoted_price) }}</span>
                           <span class="block text-[11px] text-amber-600">待一次付清 (#{{ ord.order_id }})</span>
-                        {% elif ord.order_status in ('PAID', 'BOOKED') %}
+                        {% elif ord.order_status == 'BOOKED' %}
                           <span class="font-bold text-emerald-700">NT$ {{ "{:,}".format(ord.quoted_price or 0) }}</span>
-                          <span class="block text-[11px] text-emerald-600">{{ ord.order_status }} · 已鎖定</span>
+                          <span class="block text-[11px] text-emerald-600">BOOKED · 已核發憑證</span>
+                        {% elif ord.order_status == 'PAID' %}
+                          <span class="font-bold text-emerald-700">NT$ {{ "{:,}".format(ord.quoted_price or 0) }}</span>
+                          <span class="block text-[11px] text-emerald-600">PAID · 待專員核發憑證</span>
+                        {% elif ord.order_status == 'EXCEPTION' %}
+                          <span class="font-bold text-rose-700">異常處理中 (#{{ ord.order_id }})</span>
+                          <span class="block text-[11px] text-rose-600">請決定替代方案或退款</span>
+                        {% elif ord.order_status == 'REFUNDED' %}
+                          <span class="font-bold text-purple-700">已全額退款 (#{{ ord.order_id }})</span>
+                          <span class="block text-[11px] text-purple-600">NT$ {{ "{:,}".format(ord.quoted_price or 0) }} 已退還</span>
                         {% elif ord.order_status == 'QUOTING' %}
                           <span class="text-slate-600 font-medium">待專員報價 (#{{ ord.order_id }})</span>
                         {% else %}
@@ -364,10 +385,10 @@
                         </a>
                         {% if ord %}
                           <a
-                            href="/orders/{{ ord.order_id }}"
-                            class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTED' %}bg-indigo-600 hover:bg-indigo-500 text-white{% elif ord.order_status in ('PAID', 'BOOKED') %}bg-emerald-50 hover:bg-emerald-100 text-emerald-700{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
+                            href="{{ '/orders/' ~ ord.order_id ~ '/vouchers' if ord.order_status == 'BOOKED' else '/orders/' ~ ord.order_id }}"
+                            class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold transition {% if ord.order_status == 'QUOTED' %}bg-indigo-600 hover:bg-indigo-500 text-white{% elif ord.order_status == 'EXCEPTION' %}bg-rose-600 hover:bg-rose-500 text-white{% elif ord.order_status in ('PAID', 'BOOKED') %}bg-emerald-50 hover:bg-emerald-100 text-emerald-700{% else %}bg-slate-100 hover:bg-slate-200 text-slate-700{% endif %}"
                           >
-                            {% if ord.order_status == 'QUOTED' %}前往付款{% elif ord.order_status in ('PAID', 'BOOKED') %}檢視收據{% else %}檢視訂單{% endif %}
+                            {% if ord.order_status == 'QUOTED' %}前往付款{% elif ord.order_status == 'EXCEPTION' %}處理異常{% elif ord.order_status == 'BOOKED' %}查看憑證{% elif ord.order_status == 'PAID' %}檢視收據{% else %}檢視訂單{% endif %}
                           </a>
                         {% endif %}
                         {% if trip.status in ('DRAFT', 'CONFIRMED') %}
