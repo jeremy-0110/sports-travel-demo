@@ -16,7 +16,16 @@ from app.auth import (
 )
 from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
 from app.database import get_db
-from app.models import Agent, GapItineraryItem, OrderQuote, TripPlan, User
+from app.models import (
+    Agent,
+    BookingVoucher,
+    GapItineraryItem,
+    OrderQuote,
+    SupportTicket,
+    TripPlan,
+    User,
+)
+from app.services.fulfillment import build_voucher_view_items
 from app.services.gap_planner import is_trip_gap_unlocked
 from app.services.mailer import send_quoting_request_email
 from app.services.planner import (
@@ -182,6 +191,7 @@ def create_trip(
         preference=effective_preference,
         desired_match_count=clamped_count,
         structured_targets=normalized_targets,
+        use_llm=False,
     )
 
     trip = TripPlan(
@@ -276,57 +286,86 @@ def trip_detail_page(
     )
 
 
-@router.post("/trips/{trip_id}/regenerate")
-def regenerate_trip_draft(
+@router.get("/trips/{trip_id}/schedule", response_class=HTMLResponse)
+def trip_schedule_page(
     trip_id: int,
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Regenerate the itinerary draft while the TripPlan is still in DRAFT status."""
-    current_user = get_current_user(request, db)
-    if current_user is None:
-        set_flash(request, "error", "請先登入會員帳號。")
-        return RedirectResponse(url="/login", status_code=303)
-
+    """Render the dedicated new-window master schedule merging major architecture + minor gap items."""
     trip = db.get(TripPlan, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="找不到指定的行程規劃")
-    if trip.user_id != current_user.user_id:
-        return PlainTextResponse("您沒有權限修改此筆行程規劃", status_code=403)
 
-    if trip.status == "CANCELLED":
-        set_flash(request, "error", "此行程已取消（退單），無法重新生成大架構。")
-        return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
+    active_role = get_active_role(request)
+    current_user = get_current_user(request, db)
+    if active_role != "agent":
+        if current_user is None:
+            set_flash(request, "error", "請先登入會員帳號以檢視完整行程總表。")
+            return RedirectResponse(url="/login", status_code=303)
+        if trip.user_id != current_user.user_id:
+            return PlainTextResponse("您沒有權限檢視此筆行程總表", status_code=403)
 
-    if trip.status != "DRAFT":
-        set_flash(request, "info", "此行程大架構已確認或鎖定，無法重新生成。")
-        return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
-
-    existing_draft = parse_draft_json(trip.llm_draft_json) or {}
-    preference = str(existing_draft.get("preference") or "")
-    desired_match_count = int(existing_draft.get("desired_match_count") or 2)
-    custom_instruction = str(existing_draft.get("custom_instruction") or "")
-
-    new_draft = generate_itinerary_draft(
-        league_type=trip.league_type,
-        start_date=trip.start_date,
-        end_date=trip.end_date,
-        need_flight=trip.need_flight,
-        need_hotel=trip.need_hotel,
-        preference=preference,
-        desired_match_count=desired_match_count,
-        custom_instruction=custom_instruction,
-        structured_targets=existing_draft.get("targets") or None,
+    draft = parse_draft_json(trip.llm_draft_json)
+    gap_unlocked = is_trip_gap_unlocked(trip, db)
+    gap_items = (
+        db.query(GapItineraryItem)
+        .filter(GapItineraryItem.trip_id == trip.trip_id)
+        .order_by(GapItineraryItem.day_number.asc(), GapItineraryItem.item_id.asc())
+        .all()
     )
-    trip.llm_draft_json = json.dumps(new_draft, ensure_ascii=False)
-    db.commit()
+    gap_lookup = {f"{item.day_number}::{item.time_slot}": item for item in gap_items}
 
-    set_flash(
-        request,
-        "success",
-        f"已重新生成【{trip.league_type}】行程大架構（{new_draft['mode_label']}）。",
+    orders = (
+        db.query(OrderQuote)
+        .filter(OrderQuote.trip_id == trip.trip_id)
+        .order_by(OrderQuote.order_id.desc())
+        .all()
     )
-    return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
+    main_order = next((o for o in orders if o.order_type == "MAIN_TRIP"), None)
+    addon_orders = [o for o in orders if o.order_type == "ADDON"]
+    addon_order_map = {ao.order_id: ao for ao in addon_orders}
+
+    order_ids = [o.order_id for o in orders]
+    raw_vouchers = (
+        db.query(BookingVoucher)
+        .filter(BookingVoucher.order_id.in_(order_ids))
+        .order_by(BookingVoucher.voucher_id.asc())
+        .all()
+        if order_ids
+        else []
+    )
+    voucher_items = build_voucher_view_items(raw_vouchers)
+    spot_voucher_by_name = {
+        str(item["detail"].get("spot_name") or item["detail"].get("title") or "").strip(): item
+        for item in voucher_items
+        if item["voucher"].category == "SPOT"
+    }
+
+    context = build_nav_context(request, db)
+    context.update(
+        {
+            "trip": trip,
+            "trip_owner": db.get(User, trip.user_id),
+            "draft": draft,
+            "gap_unlocked": gap_unlocked,
+            "gap_items": gap_items,
+            "gap_lookup": gap_lookup,
+            "free_gap_count": sum(1 for g in gap_items if not g.need_ticket_addon),
+            "addon_gap_count": sum(1 for g in gap_items if g.need_ticket_addon),
+            "main_order": main_order,
+            "addon_orders": addon_orders,
+            "addon_order_map": addon_order_map,
+            "voucher_items": voucher_items,
+            "spot_voucher_by_name": spot_voucher_by_name,
+            "is_owner": current_user is not None and trip.user_id == current_user.user_id,
+        }
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="trip_schedule.html",
+        context=context,
+    )
 
 
 @router.post("/trips/{trip_id}/customize")
@@ -334,12 +373,12 @@ def customize_trip_draft(
     trip_id: int,
     request: Request,
     selected_match_keys: list[str] = Form(default=[]),
-    custom_instruction: str = Form(""),
-    desired_match_count: int = Form(2),
+    custom_instruction: str | None = Form(None),
+    desired_match_count: int | None = Form(None),
     action_mode: str = Form("instant"),
     db: Session = Depends(get_db),
 ):
-    """Allow trip owner to toggle/add matches and instantly update or AI-replan a DRAFT trip."""
+    """Allow trip owner to toggle/add matches and instantly update a DRAFT trip."""
     current_user = get_current_user(request, db)
     if current_user is None:
         set_flash(request, "error", "請先登入會員帳號。")
@@ -356,8 +395,17 @@ def customize_trip_draft(
         return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
 
     existing_draft = parse_draft_json(trip.llm_draft_json) or {}
-    clamped_count = max(1, min(desired_match_count, 6))
-    cleaned_instruction = custom_instruction.strip()
+    raw_count = (
+        desired_match_count
+        if desired_match_count is not None
+        else max(1, len(selected_match_keys) or int(existing_draft.get("desired_match_count") or 2))
+    )
+    clamped_count = max(1, min(raw_count, 6))
+    cleaned_instruction = (
+        custom_instruction.strip()
+        if custom_instruction is not None
+        else str(existing_draft.get("custom_instruction") or "").strip()
+    )
 
     known_matches: dict[str, dict[str, str]] = {}
     for m in existing_draft.get("matches") or []:
@@ -434,46 +482,18 @@ def customize_trip_draft(
         )
         return RedirectResponse(url=f"/trips/{trip.trip_id}", status_code=303)
 
-    if action_mode == "ai_replan":
-        existing_diag = existing_draft.get("diagnostics") or {}
-        existing_meta = {
-            "total_found": existing_diag.get("espn_total_found"),
-            "strategy": existing_diag.get("espn_strategy"),
-            "matched_team": existing_diag.get("espn_matched_team"),
-            "covered_range": existing_diag.get("espn_covered_range"),
-        }
-        updated_draft = generate_itinerary_draft(
-            league_type=trip.league_type,
-            start_date=trip.start_date,
-            end_date=trip.end_date,
-            need_flight=trip.need_flight,
-            need_hotel=trip.need_hotel,
-            preference=str(existing_draft.get("preference") or ""),
-            desired_match_count=clamped_count,
-            locked_matches=selected_matches,
-            custom_instruction=cleaned_instruction,
-            existing_live_schedules=existing_draft.get("live_schedules"),
-            existing_search_sources=existing_draft.get("search_sources"),
-            existing_espn_meta=existing_meta,
-            structured_targets=existing_draft.get("targets") or None,
-        )
-        flash_msg = (
-            f"AI 已依您鎖定的 {len(selected_matches)} 場賽事與調整指令重新規劃大架構"
-            f"（{updated_draft['mode_label']}）。"
-        )
-    else:
-        updated_draft = apply_match_selection_instantly(
-            existing_draft=existing_draft,
-            selected_matches=selected_matches,
-            league_type=trip.league_type,
-            start_date=trip.start_date,
-            end_date=trip.end_date,
-            need_flight=trip.need_flight,
-            need_hotel=trip.need_hotel,
-            desired_match_count=clamped_count,
-            custom_instruction=cleaned_instruction,
-        )
-        flash_msg = f"已即時套用 {len(selected_matches)} 場觀賽選擇並重組結構化行程表（0 秒生效）。"
+    updated_draft = apply_match_selection_instantly(
+        existing_draft=existing_draft,
+        selected_matches=selected_matches,
+        league_type=trip.league_type,
+        start_date=trip.start_date,
+        end_date=trip.end_date,
+        need_flight=trip.need_flight,
+        need_hotel=trip.need_hotel,
+        desired_match_count=clamped_count,
+        custom_instruction=cleaned_instruction,
+    )
+    flash_msg = f"已即時套用 {len(selected_matches)} 場觀賽選擇並重組結構化行程表（0 秒生效）。"
 
     trip.llm_draft_json = json.dumps(updated_draft, ensure_ascii=False)
     db.commit()
@@ -643,6 +663,14 @@ def delete_trip_plan(
     active_agent = get_active_agent(request, db)
     deleted_id = trip.trip_id
     deleted_league = trip.league_type
+
+    order_ids = [o.order_id for o in trip.order_quotes]
+    if order_ids:
+        (
+            db.query(SupportTicket)
+            .filter(SupportTicket.order_id.in_(order_ids))
+            .update({SupportTicket.order_id: None}, synchronize_session=False)
+        )
 
     for item in trip.gap_items:
         item.addon_order_id = None

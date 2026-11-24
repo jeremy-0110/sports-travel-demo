@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block title %}真人客服聯絡與退款服務中心 - 體育賽事旅遊規劃與代訂系統{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <a href="/" class="text-sm text-slate-600 hover:text-slate-900 font-medium">← 返回首頁</a>
+      <h1 class="text-2xl font-bold text-slate-900 mt-1">
+        {% if active_role == 'agent' %}
+          真人客服工作台與退款審核中心（專員 {{ active_agent.agent_id if active_agent else 'AG001' }}）
+        {% else %}
+          真人客服文字聯絡與訂單退款服務中心
+        {% endif %}
+      </h1>
+      <p class="text-xs text-slate-500 mt-0.5">
+        {% if active_role == 'agent' %}
+          專員可在此即時文字回覆會員詢問，並對會員送出的退款申請進行全額／部分退款核准或駁回說明。
+        {% else %}
+          無論是行程調整疑問、小行程代訂詢問或已付款訂單申請退款，皆可在此與訂票專員 AG001 直接文字對話處理。
+        {% endif %}
+      </p>
+    </div>
+
+    {% if active_role != 'agent' %}
+      <button
+        type="button"
+        id="toggle-new-ticket-btn"
+        class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+      >
+        ＋ 發起新客服對話 ／ 申請退款
+      </button>
+    {% endif %}
+  </div>
+
+  {% if active_role != 'agent' %}
+    <!-- 會員發起新對話／申請退款表單 -->
+    <div
+      id="new-ticket-panel"
+      class="{% if active_ticket and not prefill_order_id and not request.query_params.get('category') %}hidden{% endif %} bg-white rounded-2xl border border-sky-200 shadow-xs p-6 space-y-4"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">建立新客服對話或提交訂單退款申請</h2>
+          <p class="text-xs text-slate-500 mt-0.5">送出後將立即指派專員 AG001；若選擇「申請訂單退款」，專員會於審查對話後執行模擬退款入帳。</p>
+        </div>
+      </div>
+
+      <form action="/support/new" method="post" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label for="ticket_category" class="block text-xs font-bold text-slate-700 mb-1">聯絡類型</label>
+            <select
+              id="ticket_category"
+              name="category"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              {% for code, label in support_categories.items() %}
+                <option value="{{ code }}" {% if prefill_category == code %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label for="ticket_order_id" class="block text-xs font-bold text-slate-700 mb-1">關聯訂單（申請退款必填）</label>
+            <select
+              id="ticket_order_id"
+              name="order_id"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="">不指定特定訂單（一般諮詢）</option>
+              {% for ord in member_orders %}
+                <option
+                  value="{{ ord.order_id }}"
+                  data-status="{{ ord.order_status }}"
+                  {% if prefill_order_id == ord.order_id %}selected{% endif %}
+                >
+                  訂單 #{{ ord.order_id }} · {{ '景點加購' if ord.order_type == 'ADDON' else '主行程' }} · {{ ord.order_status|order_status_label }}{% if ord.quoted_price %} (NT$ {{ "{:,}".format(ord.quoted_price) }}){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label for="ticket_subject" class="block text-xs font-bold text-slate-700 mb-1">對話主旨 <span class="text-rose-600">*</span></label>
+            <input
+              id="ticket_subject"
+              name="subject"
+              type="text"
+              required
+              maxlength="120"
+              value="{{ prefill_subject }}"
+              placeholder="例如：想確認球票入場方式 / 申請退訂景點加購門票"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+        </div>
+
+        <div id="refund-hint-banner" class="{% if prefill_category != 'REFUND' %}hidden{% endif %} rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-900">
+          <strong>退款申請提醒：</strong>僅限狀態為 <code>已付款待開票 (PAID)</code> 或 <code>已出憑證 (BOOKED)</code> 的訂單可申請退款；送出後可於對話室與專員文字確認，待專員按「核准並執行模擬退款」即完成入帳。
+        </div>
+
+        <div>
+          <label for="ticket_message" class="block text-xs font-bold text-slate-700 mb-1">詳細訊息／退款原因 <span class="text-rose-600">*</span></label>
+          <textarea
+            id="ticket_message"
+            name="message"
+            rows="3"
+            required
+            placeholder="請描述您想詢問的行程細節，或說明申請退款原因..."
+            class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          ></textarea>
+        </div>
+
+        <div class="flex justify-end">
+          <button
+            type="submit"
+            class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-xs transition cursor-pointer"
+          >
+            送出並進入客服對話室
+          </button>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <!-- 雙欄式客服對話中心 -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <!-- 左欄：工單清單 -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div class="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900">
+          {{ '全站客服與退款佇列' if active_role == 'agent' else '我的客服對話紀錄' }}
+        </h2>
+        <span class="text-xs text-slate-500">{{ tickets|length }} 筆</span>
+      </div>
+
+      {% if tickets %}
+        <div class="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+          {% for t in tickets %}
+            {% set is_sel = active_ticket and active_ticket.ticket_id == t.ticket_id %}
+            <a
+              href="/support?ticket_id={{ t.ticket_id }}"
+              class="block px-4 py-3.5 transition {% if is_sel %}bg-sky-50 border-l-4 border-sky-600{% else %}hover:bg-slate-50{% endif %}"
+            >
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="font-bold text-slate-900">#{{ t.ticket_id }} · {{ support_categories.get(t.category, t.category) }}</span>
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold {% if t.status == 'REFUND_REQUESTED' %}bg-amber-100 text-amber-900{% elif t.status == 'REFUND_APPROVED' %}bg-emerald-100 text-emerald-800{% elif t.status == 'REFUND_REJECTED' %}bg-rose-100 text-rose-800{% elif t.status == 'CLOSED' %}bg-slate-200 text-slate-600{% else %}bg-sky-100 text-sky-800{% endif %}">
+                  {{ t.status|support_status_label }}
+                </span>
+              </div>
+              <div class="text-sm font-semibold text-slate-800 mt-1 truncate">{{ t.subject }}</div>
+              <div class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                <span>
+                  {% if active_role == 'agent' and t.user %}{{ t.user.full_name }}{% else %}專員 {{ t.agent_id or 'AG001' }}{% endif %}
+                  {% if t.order_id %} · 訂單 #{{ t.order_id }}{% endif %}
+                </span>
+                <span>{{ t.updated_at|taipei_time('%m/%d %H:%M') }}</span>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="p-8 text-center text-xs text-slate-500 space-y-2">
+          <p>目前尚無任何客服對話紀錄。</p>
+          {% if active_role != 'agent' %}
+            <p>請填寫上方表單與專屬專員 AG001 開始文字聯繫。</p>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 右欄：進行中對話室 ＋ 退款操作區 -->
+    <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      {% if active_ticket %}
+        <div class="px-6 py-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="px-2 py-0.5 rounded bg-white/15 font-bold">客服單 #{{ active_ticket.ticket_id }}</span>
+              <span class="px-2 py-0.5 rounded bg-sky-500/30 text-sky-100 font-semibold">
+                {{ support_categories.get(active_ticket.category, active_ticket.category) }}
+              </span>
+              <span id="ticket-status-badge" class="px-2.5 py-0.5 rounded-full font-bold {% if active_ticket.status == 'REFUND_REQUESTED' %}bg-amber-400 text-slate-900{% elif active_ticket.status == 'REFUND_APPROVED' %}bg-emerald-400 text-slate-900{% elif active_ticket.status == 'REFUND_REJECTED' %}bg-rose-400 text-slate-900{% elif active_ticket.status == 'CLOSED' %}bg-slate-500 text-white{% else %}bg-sky-400 text-slate-900{% endif %}">
+                {{ active_ticket.status|support_status_label }}
+              </span>
+            </div>
+            <h2 class="text-lg font-bold mt-1">{{ active_ticket.subject }}</h2>
+            <p class="text-xs text-slate-300 mt-0.5">
+              會員：{{ active_ticket.user.full_name if active_ticket.user else ('User #' ~ active_ticket.user_id) }}
+              · 承辦專員：{{ active_ticket.agent_id or 'AG001' }}
+              {% if active_ticket.order_id %}
+                · 關聯：<a href="/orders/{{ active_ticket.order_id }}" class="underline text-amber-300 hover:text-amber-200">檢視訂單 #{{ active_ticket.order_id }}</a>
+              {% endif %}
+            </p>
+          </div>
+
+          {% if active_ticket.status not in ('REFUND_REQUESTED', 'CLOSED') %}
+            <form action="/support/{{ active_ticket.ticket_id }}/close" method="post">
+              <button
+                type="submit"
+                class="px-3.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                標記結案
+              </button>
+            </form>
+          {% endif %}
+        </div>
+
+        <!-- 退款審核專員操作區 / 會員提示條 -->
+        {% if active_ticket.category == 'REFUND' and active_ticket.order_quote %}
+          {% set rel_ord = active_ticket.order_quote %}
+          {% if active_ticket.status == 'REFUND_REQUESTED' %}
+            {% if active_role == 'agent' %}
+              <div class="p-5 bg-amber-50 border-b border-amber-200 space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="text-xs font-bold text-amber-900 uppercase tracking-wider">真人客服退款審核作業</div>
+                    <h3 class="text-sm font-bold text-slate-900 mt-0.5">
+                      會員申請退還訂單 #{{ rel_ord.order_id }}（{{ '景點加購 ADDON' if rel_ord.order_type == 'ADDON' else '主行程 MAIN_TRIP' }} · 實付 NT$ {{ "{:,}".format(rel_ord.quoted_price or 0) }}）
+                    </h3>
+                  </div>
+                  <a href="/orders/{{ rel_ord.order_id }}" class="text-xs font-bold text-indigo-700 hover:underline">
+                    前往檢視訂單與已開憑證 →
+                  </a>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <form action="/support/{{ active_ticket.ticket_id }}/refund/approve" method="post" class="bg-white rounded-xl border border-emerald-200 p-4 space-y-3">
+                    <div class="text-xs font-bold text-emerald-900">核准並執行模擬退款</div>
+                    <div>
+                      <label for="approved_amount" class="block text-[11px] font-semibold text-slate-700 mb-1">
+                        核准退款金額（最高 NT$ {{ "{:,}".format(rel_ord.quoted_price or 0) }}，可調整部分退款）
+                      </label>
+                      <input
+                        id="approved_amount"
+                        name="approved_amount"
+                        type="number"
+                        min="1"
+                        max="{{ rel_ord.quoted_price or 0 }}"
+                        value="{{ active_ticket.refund_amount_requested or rel_ord.quoted_price or 0 }}"
+                        required
+                        class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-bold text-emerald-800"
+                      />
+                    </div>
+                    <div>
+                      <label for="agent_note" class="block text-[11px] font-semibold text-slate-700 mb-1">給會員的退款說明（選填）</label>
+                      <input
+                        id="agent_note"
+                        name="agent_note"
+                        type="text"
+                        placeholder="例如：已與合作夥伴確認取消手續，安排全額模擬退還。"
+                        class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      class="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      核准退款並寫入金流紀錄 (REFUND)
+                    </button>
+                  </form>
+
+                  <form action="/support/{{ active_ticket.ticket_id }}/refund/reject" method="post" class="bg-white rounded-xl border border-rose-200 p-4 space-y-3 flex flex-col justify-between">
+                    <div class="space-y-3">
+                      <div class="text-xs font-bold text-rose-900">駁回退款申請（維持訂單有效）</div>
+                      <div>
+                        <label for="reject_reason" class="block text-[11px] font-semibold text-slate-700 mb-1">
+                          駁回理由與建議說明 <span class="text-rose-600">*</span>
+                        </label>
+                        <textarea
+                          id="reject_reason"
+                          name="reject_reason"
+                          rows="2"
+                          required
+                          placeholder="例如：此聯賽官方實名電子票已出票不可退改，專員可協助詢問同行親友更名..."
+                          class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                        ></textarea>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      class="w-full px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      駁回退款並發送說明
+                    </button>
+                  </form>
+                </div>
+              </div>
+            {% else %}
+              <div class="px-6 py-3.5 bg-amber-50 border-b border-amber-200 text-xs text-amber-950 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <strong>退款申請審核中：</strong>您申請退還訂單 #{{ rel_ord.order_id }}（NT$ {{ "{:,}".format(active_ticket.refund_amount_requested or rel_ord.quoted_price or 0) }}），可於下方直接與專員文字確認細節。
+                </span>
+                <span class="font-semibold text-amber-800">（展示提示：切換至專員視角 AG001 即可審核退款）</span>
+              </div>
+            {% endif %}
+          {% elif active_ticket.status == 'REFUND_APPROVED' %}
+            <div class="px-6 py-3 bg-emerald-50 border-b border-emerald-200 text-xs text-emerald-900 font-semibold">
+              ✓ 此筆退款申請已核准完成（核准金額 NT$ {{ "{:,}".format(active_ticket.refund_amount_requested or 0) }}，訂單 #{{ rel_ord.order_id }} 狀態：{{ rel_ord.order_status }}）。
+            </div>
+          {% elif active_ticket.status == 'REFUND_REJECTED' %}
+            <div class="px-6 py-3 bg-rose-50 border-b border-rose-200 text-xs text-rose-900 font-semibold">
+              ✕ 此筆退款申請已由專員審核駁回，訂單 #{{ rel_ord.order_id }} 目前維持 {{ rel_ord.order_status|order_status_label }}。
+            </div>
+          {% endif %}
+        {% endif %}
+
+        <!-- 對話氣泡區 -->
+        <div
+          id="support-messages-box"
+          data-ticket-id="{{ active_ticket.ticket_id }}"
+          data-msg-count="{{ active_ticket.messages|length }}"
+          class="p-6 space-y-4 bg-slate-50/70 max-h-[430px] overflow-y-auto"
+        >
+          {% for msg in active_ticket.messages %}
+            {% if msg.sender_role == 'SYSTEM' %}
+              <div class="flex justify-center">
+                <div class="max-w-lg rounded-xl bg-white border border-slate-200 px-4 py-2 text-xs text-slate-600 text-center shadow-2xs">
+                  <div class="font-semibold text-slate-800">{{ msg.content }}</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">{{ msg.created_at|taipei_time }}（台灣時間）</div>
+                </div>
+              </div>
+            {% elif msg.sender_role == 'AGENT' %}
+              <div class="flex flex-col items-start">
+                <span class="text-[11px] font-bold text-emerald-800 mb-1">{{ msg.sender_name }} · {{ msg.created_at|taipei_time('%H:%M') }}</span>
+                <div class="max-w-lg rounded-2xl rounded-tl-sm bg-emerald-600 text-white px-4 py-2.5 text-sm leading-relaxed shadow-xs">
+                  {{ msg.content }}
+                </div>
+              </div>
+            {% else %}
+              <div class="flex flex-col items-end">
+                <span class="text-[11px] font-bold text-sky-800 mb-1">{{ msg.sender_name }} · {{ msg.created_at|taipei_time('%H:%M') }}</span>
+                <div class="max-w-lg rounded-2xl rounded-tr-sm bg-sky-600 text-white px-4 py-2.5 text-sm leading-relaxed shadow-xs">
+                  {{ msg.content }}
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+
+        <!-- 文字輸入框 -->
+        {% if active_ticket.status != 'CLOSED' %}
+          <form
+            action="/support/{{ active_ticket.ticket_id }}/messages"
+            method="post"
+            class="p-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row gap-2.5"
+          >
+            <input
+              id="chat-reply-input"
+              name="content"
+              type="text"
+              required
+              maxlength="800"
+              placeholder="{{ '以專員 AG001 身分輸入文字回覆會員...' if active_role == 'agent' else '輸入想給專員的文字訊息...' }}"
+              class="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+            <button
+              type="submit"
+              class="px-5 py-2.5 rounded-xl {% if active_role == 'agent' %}bg-emerald-700 hover:bg-emerald-600{% else %}bg-sky-600 hover:bg-sky-500{% endif %} text-white text-sm font-bold transition cursor-pointer"
+            >
+              發送訊息
+            </button>
+          </form>
+        {% else %}
+          <div class="p-4 bg-slate-100 border-t border-slate-200 text-center text-xs text-slate-500">
+            此客服對話已結案，如需新協助請建立新對話。
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="p-12 text-center text-sm text-slate-500 space-y-2">
+          <div class="text-lg font-bold text-slate-700">歡迎使用真人客服文字中心</div>
+          <p class="text-xs">請從左側選擇既有對話紀錄，或發起新對話／申請訂單退款。</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const toggleBtn = document.getElementById("toggle-new-ticket-btn");
+    const newPanel = document.getElementById("new-ticket-panel");
+    if (toggleBtn && newPanel) {
+      toggleBtn.addEventListener("click", () => {
+        newPanel.classList.toggle("hidden");
+      });
+    }
+
+    const catSelect = document.getElementById("ticket_category");
+    const refundHint = document.getElementById("refund-hint-banner");
+    const subjectInput = document.getElementById("ticket_subject");
+    const orderSelect = document.getElementById("ticket_order_id");
+    function syncRefundHint() {
+      if (!catSelect || !refundHint) return;
+      const isRefund = catSelect.value === "REFUND";
+      refundHint.classList.toggle("hidden", !isRefund);
+      if (isRefund && subjectInput && !subjectInput.value.trim() && orderSelect && orderSelect.value) {
+        subjectInput.value = `申請訂單 #${orderSelect.value} 退款審核`;
+      }
+    }
+    if (catSelect) {
+      catSelect.addEventListener("change", syncRefundHint);
+    }
+
+    const msgBox = document.getElementById("support-messages-box");
+    if (msgBox) {
+      msgBox.scrollTop = msgBox.scrollHeight;
+      const ticketId = msgBox.dataset.ticketId;
+      let knownCount = Number(msgBox.dataset.msgCount || "0");
+      const currentStatus = "{{ active_ticket.status if active_ticket else '' }}";
+
+      function escHtml(str) {
+        return String(str || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function renderMessages(messages) {
+        msgBox.innerHTML = messages.map((m) => {
+          if (m.sender_role === "SYSTEM") {
+            return `<div class="flex justify-center"><div class="max-w-lg rounded-xl bg-white border border-slate-200 px-4 py-2 text-xs text-slate-600 text-center shadow-2xs"><div class="font-semibold text-slate-800">${escHtml(m.content)}</div><div class="text-[10px] text-slate-400 mt-0.5">${escHtml(m.created_at)}（台灣時間）</div></div></div>`;
+          }
+          if (m.sender_role === "AGENT") {
+            return `<div class="flex flex-col items-start"><span class="text-[11px] font-bold text-emerald-800 mb-1">${escHtml(m.sender_name)} · ${escHtml(m.created_at)}</span><div class="max-w-lg rounded-2xl rounded-tl-sm bg-emerald-600 text-white px-4 py-2.5 text-sm leading-relaxed shadow-xs">${escHtml(m.content)}</div></div>`;
+          }
+          return `<div class="flex flex-col items-end"><span class="text-[11px] font-bold text-sky-800 mb-1">${escHtml(m.sender_name)} · ${escHtml(m.created_at)}</span><div class="max-w-lg rounded-2xl rounded-tr-sm bg-sky-600 text-white px-4 py-2.5 text-sm leading-relaxed shadow-xs">${escHtml(m.content)}</div></div>`;
+        }).join("");
+        msgBox.scrollTop = msgBox.scrollHeight;
+      }
+
+      if (ticketId) {
+        window.setInterval(async () => {
+          if (document.hidden) return;
+          try {
+            const resp = await fetch(`/api/support/${ticketId}/messages`, { cache: "no-store" });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data.status && data.status !== currentStatus) {
+              window.location.reload();
+              return;
+            }
+            if (Array.isArray(data.messages) && data.messages.length !== knownCount) {
+              knownCount = data.messages.length;
+              renderMessages(data.messages);
+            }
+          } catch (_err) {
+            // Silent ignore on background polling failure
+          }
+        }, 5000);
+      }
+    }
+  })();
+</script>
+{% endblock %}

@@ -218,16 +218,25 @@ def send_quote_ready_email(
     price_str = f"NT$ {order.quoted_price:,}"
     order_url = f"{config.APP_BASE_URL}/orders/{order.order_id}"
 
+    is_addon = getattr(order, "order_type", "MAIN_TRIP") == "ADDON"
+    order_kind_label = "景點門票加購" if is_addon else "賽事旅遊主行程"
+    quote_work_desc = "景點門票與快速通關核算" if is_addon else "即時球票與機酒核算"
+    post_pay_desc = (
+        "全額付款完成後，專員將立即核發 SPOT 景點電子入場憑證。"
+        if is_addon
+        else "全額付款完成後，系統將立即指派專員進行代訂，並解鎖您的免費空檔旅遊行程規劃權限。"
+    )
+
     subject = f"[一口價報價單完成] 訂單 #{order.order_id}（{trip.league_type}）{price_str}"
     note_line = f"\n專員備註：{quote_note}" if quote_note else ""
     text_body = (
         f"{member_name} 您好：\n"
-        f"訂票專員 {agent_id}（{agent_name}）已為您的行程 #{trip.trip_id} 開立正式一口價報價單（無訂金、一次付清）。\n"
+        f"訂票專員 {agent_id}（{agent_name}）已為您的{order_kind_label}（行程 #{trip.trip_id}）開立正式一口價報價單（無訂金、一次付清）。\n"
         f"訂單編號：#{order.order_id}\n"
         f"正式一口價金額：{price_str}\n"
         f"旅遊區間：{trip.start_date} ~ {trip.end_date}（{trip.league_type}）"
         f"{note_line}\n"
-        f"請點擊以下連結查看明細並完成全額付款（付款後即自動解鎖免費空檔行程）：\n{order_url}"
+        f"請點擊以下連結查看明細並完成全額付款（{post_pay_desc}）：\n{order_url}"
     )
     note_html = (
         f"<p style=\"background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;\">"
@@ -237,17 +246,17 @@ def send_quote_ready_email(
     )
     body_html = (
         f"<p><strong>{escape(member_name)} 您好：</strong></p>"
-        f"<p>您的專屬訂票專員 <strong>{escape(agent_id)}（{escape(agent_name)}）</strong> 已完成即時票價與機酒核算，開立正式一口價報價單：</p>"
+        f"<p>您的專屬訂票專員 <strong>{escape(agent_id)}（{escape(agent_name)}）</strong> 已完成{quote_work_desc}，開立正式一口價報價單：</p>"
         "<div style=\"background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px 16px;margin:12px 0;\">"
         "<div style=\"font-size:12px;color:#047857;font-weight:700;\">正式一口價總額（無訂金 · 一次付清）</div>"
         f"<div style=\"font-size:24px;font-weight:800;color:#064e3b;margin-top:4px;\">{price_str}</div>"
         "</div>"
         "<ul>"
-        f"<li>訂單編號：#{order.order_id}</li>"
+        f"<li>訂單編號：#{order.order_id}（{order_kind_label}）</li>"
         f"<li>行程規劃：#{trip.trip_id} · {escape(trip.league_type)}（{trip.start_date} ~ {trip.end_date}）</li>"
         "</ul>"
         f"{note_html}"
-        "<p style=\"color:#475569;font-size:13px;\">全額付款完成後，系統將立即指派專員進行代訂，並解鎖您的免費空檔旅遊行程規劃權限。</p>"
+        f"<p style=\"color:#475569;font-size:13px;\">{post_pay_desc}</p>"
     )
     html_body = _wrap_html_card(
         title=f"您的正式一口價報價單已開立（#{order.order_id}）",
@@ -282,14 +291,21 @@ def send_payment_success_emails(
     price_str = f"NT$ {txn.amount:,}"
     order_url = f"{config.APP_BASE_URL}/orders/{order.order_id}"
 
+    is_addon = getattr(order, "order_type", "MAIN_TRIP") == "ADDON"
+    fulfill_target = "景點門票（SPOT 電子憑證）" if is_addon else "球賽門票／機票／飯店"
+    member_status_banner = (
+        "✓ 景點門票加購訂單已派單！訂票專員將盡速為您開立 SPOT 景點電子憑證。"
+        if is_addon
+        else "✓ 您的行程已進入鎖定代訂狀態（LOCKED），免費空檔行程規劃權限已解鎖！"
+    )
+
     member_subject = f"[全額付款成功收據] 訂單 #{order.order_id} 已付清 {price_str}"
     member_text = (
         f"{member_name} 您好：\n"
         f"您已成功全額付清訂單 #{order.order_id}（{trip.league_type}）。\n"
         f"金流交易編號：{txn.gateway_ref}\n"
         f"實付金額：{price_str}\n"
-        f"系統已自動鎖定行程 #{trip.trip_id} 並通知專員 {agent_id} 進行人工代訂（球票／機票／飯店），"
-        f"同時已解鎖免費空檔行程權限！\n查看訂單：{order_url}"
+        f"系統已通知專員 {agent_id} 進行人工代訂（{fulfill_target}）。\n查看訂單：{order_url}"
     )
     member_body_html = (
         f"<p><strong>{escape(member_name)} 您好：</strong></p>"
@@ -301,7 +317,7 @@ def send_payment_success_emails(
         f"<li>承辦專員：{escape(agent_id)}（{escape(agent_name)}）</li>"
         "</ul>"
         "<p style=\"background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px 14px;color:#312e81;\">"
-        "✓ 您的行程已進入鎖定代訂狀態（LOCKED），免費空檔行程規劃權限已解鎖！</p>"
+        f"{member_status_banner}</p>"
     )
     member_html = _wrap_html_card(
         title=f"全額付款成功收據 · #{order.order_id}",
@@ -323,7 +339,7 @@ def send_payment_success_emails(
     agent_text = (
         f"{agent_name}（{agent_id}）您好：\n"
         f"會員 {member_name} 已完成訂單 #{order.order_id} 全額付款（{price_str}，交易編號 {txn.gateway_ref}）。\n"
-        f"請盡速執行球賽門票／機票／飯店人工代訂，並核發類 Agoda 訂票憑證。\n訂單頁：{order_url}"
+        f"請盡速執行{fulfill_target}人工代訂，並核發類 Agoda 訂票憑證。\n訂單頁：{order_url}"
     )
     agent_body_html = (
         f"<p><strong>{escape(agent_name)}（{escape(agent_id)}）您好：</strong></p>"
@@ -606,4 +622,82 @@ def send_exception_resolved_emails(
         order_id=order.order_id,
     )
     return member_res, agent_res
+
+
+def send_support_refund_decision_email(
+    order: Any,
+    trip: Any,
+    user: Any,
+    agent: Any,
+    *,
+    approved: bool,
+    refund_txn: Any = None,
+    note: str = "",
+) -> dict[str, Any]:
+    """Notify member when live support approves or rejects a refund request."""
+    agent_id = getattr(agent, "agent_id", None) or getattr(order, "agent_id", None) or "AG001"
+    agent_name = getattr(agent, "agent_name", None) or "訂票專員"
+    member_name = getattr(user, "full_name", None) or "會員"
+    member_email = getattr(user, "email", None) or ""
+    order_url = f"{config.APP_BASE_URL}/orders/{order.order_id}"
+    support_url = f"{config.APP_BASE_URL}/support"
+
+    if approved:
+        amount_str = (
+            f"NT$ {refund_txn.amount:,}"
+            if refund_txn is not None
+            else f"NT$ {order.quoted_price or 0:,}"
+        )
+        ref_code = getattr(refund_txn, "gateway_ref", None) or "MOCK-REF"
+        note_html = (
+            f"<p><strong>專員審核備註：</strong>{escape(note)}</p>" if note else ""
+        )
+        return send_notification_email(
+            to_email=member_email,
+            subject=f"[客服退款核准通知] 訂單 #{order.order_id} 已退款 {amount_str}",
+            html_body=_wrap_html_card(
+                title=f"客服退款申請已核准 · 訂單 #{order.order_id}",
+                subtitle=f"承辦專員：{agent_id} {agent_name} · 退款編號 {ref_code}",
+                body_html=(
+                    f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+                    f"<p>您在真人客服提出之訂單 <strong>#{order.order_id}</strong>（{escape(trip.league_type)}）退款申請已獲專員審核通過並完成模擬入帳：</p>"
+                    "<ul>"
+                    f"<li>核准退款金額：<strong>{amount_str}</strong></li>"
+                    f"<li>金流退款參考號：<code>{escape(ref_code)}</code></li>"
+                    "<li>訂單狀態：REFUNDED</li>"
+                    "</ul>"
+                    f"{note_html}"
+                ),
+                action_url=order_url,
+                action_label="檢視訂單與退款交易紀錄",
+            ),
+            text_body=(
+                f"{member_name} 您好：客服專員 {agent_id} 已核准訂單 #{order.order_id} 退款 {amount_str}"
+                f"（參考號 {ref_code}）。\n訂單明細：{order_url}"
+            ),
+            category="SUPPORT_REFUND_APPROVED",
+            order_id=order.order_id,
+        )
+
+    return send_notification_email(
+        to_email=member_email,
+        subject=f"[客服退款審核通知] 訂單 #{order.order_id} 退款申請未通過",
+        html_body=_wrap_html_card(
+            title=f"客服退款申請說明 · 訂單 #{order.order_id}",
+            subtitle=f"承辦專員：{agent_id} {agent_name}",
+            body_html=(
+                f"<p><strong>{escape(member_name)} 您好：</strong></p>"
+                f"<p>客服專員 <strong>{escape(agent_id)}（{escape(agent_name)}）</strong> 已審閱您針對訂單 <strong>#{order.order_id}</strong> 的退款申請，目前暫無法核准退款，訂單維持有效狀態。</p>"
+                f"<p style=\"background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:10px 12px;\"><strong>專員說明：</strong>{escape(note)}</p>"
+            ),
+            action_url=support_url,
+            action_label="返回客服對話確認細節",
+        ),
+        text_body=(
+            f"{member_name} 您好：客服專員 {agent_id} 回覆訂單 #{order.order_id} 退款申請未通過，原因：{note}\n"
+            f"客服中心：{support_url}"
+        ),
+        category="SUPPORT_REFUND_REJECTED",
+        order_id=order.order_id,
+    )
 

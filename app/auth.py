@@ -8,7 +8,7 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.config import DEFAULT_AGENT_ID, SUPPORTED_LEAGUES
-from app.models import Agent, User
+from app.models import Agent, SupportTicket, User
 
 
 def hash_password(password: str) -> str:
@@ -91,11 +91,38 @@ def pop_flash(request: Request) -> dict[str, str] | None:
     return None
 
 
+def count_active_support_tickets(
+    db: Session,
+    active_role: str,
+    current_user: User | None,
+) -> int:
+    """Count open or pending-refund support tickets visible to the current role."""
+    active_statuses = ("OPEN", "REFUND_REQUESTED")
+    if active_role == "agent":
+        return (
+            db.query(SupportTicket)
+            .filter(SupportTicket.status.in_(active_statuses))
+            .count()
+        )
+    if current_user is None:
+        return 0
+    return (
+        db.query(SupportTicket)
+        .filter(
+            SupportTicket.user_id == current_user.user_id,
+            SupportTicket.status.in_(active_statuses),
+        )
+        .count()
+    )
+
+
 def build_nav_context(request: Request, db: Session) -> dict:
     """Build shared navigation, session, and perspective context for templates."""
+    current_user = get_current_user(request, db)
+    active_role = get_active_role(request)
     return {
-        "current_user": get_current_user(request, db),
-        "active_role": get_active_role(request),
+        "current_user": current_user,
+        "active_role": active_role,
         "active_agent": get_active_agent(request, db),
         "agents": (
             db.query(Agent)
@@ -103,6 +130,7 @@ def build_nav_context(request: Request, db: Session) -> dict:
             .order_by(Agent.agent_id)
             .all()
         ),
+        "open_support_count": count_active_support_tickets(db, active_role, current_user),
         "flash": pop_flash(request),
         "supported_leagues": SUPPORTED_LEAGUES,
     }

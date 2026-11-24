@@ -384,7 +384,15 @@ def extract_gap_slots(draft: dict[str, Any] | None, trip: TripPlan) -> list[dict
             for blk in blocks:
                 if not isinstance(blk, dict):
                     continue
-                if str(blk.get("category") or "").strip() != "空檔":
+                blk_cat = str(blk.get("category") or "").strip()
+                blk_title = str(blk.get("title") or "")
+                blk_detail = str(blk.get("detail") or "")
+                is_gap_block = (
+                    blk_cat == "空檔"
+                    or "付款後解鎖" in blk_title
+                    or "全額付款完成後" in blk_detail
+                )
+                if not is_gap_block:
                     continue
                 period = str(blk.get("period") or "自由時段").strip() or "自由時段"
                 slot_key = f"{day_num}::{period}"
@@ -923,7 +931,7 @@ def create_addon_order_for_gap_items(db: Session, trip: TripPlan) -> OrderQuote:
     if agent is None:
         agent = Agent(
             agent_id=config.DEFAULT_AGENT_ID,
-            agent_name="林專員 (運動旅遊首席顧問)",
+            agent_name="王小明",
             email="ag001@sportstravel.demo",
         )
         db.add(agent)

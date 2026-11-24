@@ -35,7 +35,26 @@
           </a>
         {% endif %}
 
+        {% if current_user or active_role == 'agent' %}
+          <a
+            href="/support"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/15 transition"
+          >
+            <span>{{ '客服與退款工作台' if active_role == 'agent' else '客服聯絡／退款' }}</span>
+            {% if open_support_count is defined and open_support_count > 0 %}
+              <span class="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-900 text-xs font-extrabold">{{ open_support_count }}</span>
+            {% endif %}
+          </a>
+        {% endif %}
+
         <form action="/switch-role" method="post" class="inline-flex items-center">
+          {% set current_path = request.url.path if request is defined else '/' %}
+          {% set current_full = current_path ~ ('?' ~ request.url.query if (request is defined and request.url.query) else '') %}
+          <input
+            type="hidden"
+            name="next_url"
+            value="{{ current_full if (current_path.startswith('/orders/') or current_path.startswith('/support') or (current_path.startswith('/trips/') and current_path != '/trips/new')) else '/' }}"
+          />
           {% if active_role == 'agent' %}
             <input type="hidden" name="role" value="member" />
             <button
@@ -110,7 +129,7 @@
   <footer class="print:hidden border-t border-slate-200 bg-white">
     <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
       <p>支援賽事範圍：北美（MLB、NBA）與歐洲（足球五大聯賽、歐冠）</p>
-      <p>課程展示 Demo 模式 · 模擬金流與站內通知信箱 · 一口價無訂金流程</p>
+      <p>課程展示 Demo · 模擬金流與 Email 即時通知 · 一口價無訂金流程</p>
     </div>
   </footer>
 </body>

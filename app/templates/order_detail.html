@@ -10,8 +10,16 @@
       <a href="/trips/{{ trip.trip_id }}" class="text-sky-700 hover:underline font-medium">
         檢視行程大架構 #{{ trip.trip_id }}
       </a>
+      <a
+        href="/trips/{{ trip.trip_id }}/schedule"
+        target="_blank"
+        rel="noopener"
+        class="text-indigo-700 hover:underline font-semibold"
+      >
+        完整行程總表（新視窗）↗
+      </a>
     </div>
-    <span class="text-xs text-slate-500">訂單編號 #{{ order.order_id }}（D3 / D4）</span>
+    <span class="text-xs text-slate-500">訂單編號 #{{ order.order_id }}</span>
   </div>
 
   <!-- 訂單與行程摘要卡片 -->
@@ -24,15 +32,19 @@
             }}</span>
           <span
             class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if order.order_status in ('PAID', 'BOOKED') %}bg-emerald-100 text-emerald-800{% elif order.order_status == 'QUOTED' %}bg-amber-100 text-amber-800{% elif order.order_status in ('CANCELLED', 'EXCEPTION') %}bg-rose-100 text-rose-800{% elif order.order_status == 'REFUNDED' %}bg-purple-100 text-purple-800{% else %}bg-slate-100 text-slate-700{% endif %}">
-            訂單狀態：{{ order.order_status }}
+            訂單狀態：{{ order.order_status|order_status_label }}
           </span>
           <span
             class="px-2.5 py-0.5 rounded-full text-xs font-semibold {% if trip.status == 'LOCKED' %}bg-indigo-100 text-indigo-800{% elif trip.status == 'CONFIRMED' %}bg-emerald-50 text-emerald-700{% elif trip.status == 'CANCELLED' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-700{% endif %}">
-            行程狀態：{{ trip.status }}
+            行程狀態：{{ trip.status|trip_status_label }}
           </span>
         </div>
         <h1 class="text-2xl font-bold text-slate-900">
+          {% if order.order_type == 'ADDON' %}
+          景點門票加購報價與履約中心（行程 #{{ trip.trip_id }}）
+          {% else %}
           一口價報價單與代訂履約中心（行程 #{{ trip.trip_id }}）
+          {% endif %}
         </h1>
         <p class="text-xs text-slate-500">
           會員：{% if trip_owner %}{{ trip_owner.full_name }}（{{ trip_owner.email }}）{% else %}User #{{ trip.user_id }}{%
@@ -66,7 +78,7 @@
           待專員報價
           {% endif %}
         </div>
-        {% if draft and draft.estimated_budget_twd %}
+        {% if order.order_type != 'ADDON' and draft and draft.estimated_budget_twd %}
         <div class="text-[11px] text-slate-500 mt-1">
           AI 原參考預估：NT$ {{ "{:,}".format(draft.estimated_budget_twd) }}
         </div>
@@ -161,7 +173,7 @@
       <div>
         <span
           class="inline-block text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-          DFD 3.0 · 訂票專員報價工作區（{{ active_agent.agent_id if active_agent else 'AG001' }}）
+          訂票專員報價工作區（{{ active_agent.agent_id if active_agent else 'AG001' }}）
         </span>
         <h2 class="text-lg font-bold text-slate-900 mt-1">
           {% if order.order_status == 'QUOTED' %}檢視或修正正式一口價報價單{% elif order.order_status in ('QUOTING',)
@@ -187,7 +199,7 @@
             給會員的報價說明／席次與航段備註（選填，將一併寫入 Email 通知信）
           </label>
           <input id="quote_note" name="quote_note" type="text" maxlength="300"
-            placeholder="例如：含下層看台保證相鄰雙人席、直飛經濟艙來回含 23kg 託運及市區四星飯店含早"
+            placeholder="{{ '例如：含官方快速通關雙人電子票與預約入場時段保證' if order.order_type == 'ADDON' else '例如：含下層看台保證相鄰雙人席、直飛經濟艙來回含 23kg 託運及市區四星飯店含早' }}"
             class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
         </div>
       </div>
@@ -209,7 +221,7 @@
         <div>
           <strong>會員已全額付清！</strong>
           {% if latest_success_txn %}（交易編號 <code>{{ latest_success_txn.gateway_ref }}</code>）{% endif %}
-          請執行 DFD 5.0 真人代訂並核發類 Agoda 訂票憑證；若現場售罄或價格暴漲，請於下方回報異常。
+          請執行真人代訂並核發類 Agoda 訂票憑證；若現場售罄或價格異動，請於下方回報異常。
         </div>
         <div class="flex flex-wrap items-center gap-2">
           {% if voucher_items %}
@@ -268,7 +280,7 @@
           <div>
             <span
               class="inline-block text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
-              DFD 5.0 · 旅行社分類專屬嚴謹開票系統
+              旅行社分類專屬嚴謹開票系統
             </span>
             <h3 class="text-sm font-bold text-slate-900 mt-1">依憑證種類切換專屬文件表單（欄位缺漏將遭後端退回）</h3>
           </div>
@@ -632,7 +644,7 @@
         <div>
           <span
             class="inline-block text-[11px] font-bold uppercase tracking-wider text-rose-800 bg-rose-100 px-2 py-0.5 rounded">
-            DFD 5.0 · 訂票異常與替代方案回報 (BookingException)
+            訂票異常與替代方案回報
           </span>
           <h3 class="text-sm font-bold text-rose-950 mt-1">若遇座位售罄／票價異動／飯店滿房，可立即通報會員決定替代方案或全額退款</h3>
         </div>
@@ -688,7 +700,7 @@
     <div>
       <span
         class="inline-block text-[11px] font-bold uppercase tracking-wider text-rose-800 bg-rose-100 px-2.5 py-0.5 rounded">
-        DFD 5.0 · 重要訂票異常通知 — 請決定處理方式
+        重要訂票異常通知 — 請決定處理方式
       </span>
       <h2 class="text-lg font-bold text-rose-950 mt-1">
         訂票專員 {{ order.agent_id or 'AG001' }} 於實質代訂時回報異常狀況
@@ -721,7 +733,9 @@
   {% elif order.order_status == 'QUOTING' %}
   <div class="rounded-2xl bg-amber-50 border border-amber-200 p-6 space-y-2">
     <div class="text-xs font-bold text-amber-800 uppercase tracking-wider">等待專員核算中（QUOTING）</div>
-    <h2 class="text-base font-bold text-amber-950">訂票專員 {{ order.agent_id or 'AG001' }} 正在核對即時球票與機酒費用</h2>
+    <h2 class="text-base font-bold text-amber-950">
+      訂票專員 {{ order.agent_id or 'AG001' }} 正在{{ '確認景點門票即時票價與預約時段' if order.order_type == 'ADDON' else '核對即時球票與機酒費用' }}
+    </h2>
     <p class="text-xs text-amber-900">
       專員開立「一口價報價單（無訂金）」後，系統將立刻寄送通知信至您的會員信箱；屆時您可切換或重整本頁，進行全額模擬付款。
       <span class="font-semibold">（展示提示：請點右上角「切換至專員視角 (AG001)」輸入一口價金額並送出）</span>
@@ -733,7 +747,7 @@
       <div>
         <span
           class="inline-block text-[11px] font-bold uppercase tracking-wider text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
-          DFD 4.0 · 模擬第三方金流全額結帳（無訂金・一次付清）
+          線上全額結帳（模擬第三方金流・無訂金一次付清）
         </span>
         <h2 class="text-lg font-bold text-slate-900 mt-1">請確認正式一口價金額並完成線上付款</h2>
       </div>
@@ -861,7 +875,7 @@
 
       <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
         <span class="text-xs text-slate-500">
-          付款成功後將立即寫入 D4 金流交易紀錄、鎖定行程並解鎖免費空檔旅遊規劃權限。
+          {{ '付款成功後將立即寫入金流交易紀錄，並通知專員核發 SPOT 景點門票憑證。' if order.order_type == 'ADDON' else '付款成功後將立即寫入金流交易紀錄、鎖定行程並解鎖免費空檔旅遊規劃權限。' }}
         </span>
         <button type="submit"
           class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-sm transition cursor-pointer">
@@ -889,12 +903,20 @@
       感謝您！訂單 #{{ order.order_id }} 已全額付清 NT$ {{ "{:,}".format(order.quoted_price or 0) }}
     </h2>
     <p class="text-xs text-emerald-900 leading-relaxed">
-      {% if voucher_items %}
-      訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 已為您核發 <strong>{{ voucher_items|length }} 張類 Agoda
-        訂票憑證</strong>，您可隨時檢視確認碼或列印 PDF，同時您的 <strong>免費空檔行程規劃權限</strong> 也已全面解鎖！
+      {% if order.order_type == 'ADDON' %}
+        {% if voucher_items %}
+        訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 已為您核發 <strong>{{ voucher_items|length }} 張景點門票電子憑證</strong>，您可隨時檢視入場資訊或列印 PDF。
+        {% else %}
+        系統已通知訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 為您代訂加購景點門票並核發官方 SPOT 電子憑證。
+        {% endif %}
       {% else %}
-      系統已自動將您的需求派單給專屬訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 執行球票與機酒實質代訂並核發類 Agoda 訂票憑證，同時為您解鎖
-      <strong>免費空檔行程規劃權限（Phase 5 開放空檔與景點加購）</strong>。
+        {% if voucher_items %}
+        訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 已為您核發 <strong>{{ voucher_items|length }} 張類 Agoda
+          訂票憑證</strong>，您可隨時檢視確認碼或列印 PDF，同時您的 <strong>免費空檔行程規劃權限</strong> 也已全面解鎖！
+        {% else %}
+        系統已自動將您的需求派單給專屬訂票專員 <strong>{{ order.agent_id or 'AG001' }}</strong> 執行球票與機酒實質代訂並核發類 Agoda 訂票憑證，同時為您解鎖
+        <strong>免費空檔行程規劃權限（立即自由規劃空檔景點與加購門票）</strong>。
+        {% endif %}
       {% endif %}
       {% if latest_success_txn %}
       本次付款授權交易編號：<code class="bg-white/80 px-1.5 py-0.5 rounded font-mono">{{ latest_success_txn.gateway_ref }}</code>。
@@ -909,7 +931,11 @@
       {% endif %}
       <a href="/trips/{{ trip.trip_id }}/gap"
         class="inline-flex items-center px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition">
-        前往免費空檔行程規劃與景點加購 →
+        {{ '返回免費空檔行程規劃工作台 →' if order.order_type == 'ADDON' else '前往免費空檔行程規劃與景點加購 →' }}
+      </a>
+      <a href="/support?order_id={{ order.order_id }}&category=REFUND"
+        class="inline-flex items-center px-4 py-2.5 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold transition">
+        聯絡真人客服 ／ 申請退款
       </a>
     </div>
   </div>
@@ -918,7 +944,11 @@
     <div class="text-xs font-bold text-purple-800 uppercase tracking-wider">REFUNDED · 異常全額退款完成</div>
     <h2 class="text-lg font-bold text-purple-950">此筆訂單已完成全額模擬退款（NT$ {{ "{:,}".format(order.quoted_price or 0) }}）</h2>
     <p class="text-xs text-purple-900">
-      退款明細已寫入下方 D4 金流交易紀錄表（交易類型 <code>REFUND</code>），關聯主行程亦已關閉取消。
+      {% if order.order_type == 'ADDON' %}
+      退款明細已寫入下方交易紀錄（交易類型 <code>REFUND</code>），原預約加購景點已解除鎖定並可重新規劃，您的主行程不受影響。
+      {% else %}
+      退款明細已寫入下方交易紀錄（交易類型 <code>REFUND</code>），關聯主行程亦已關閉取消。
+      {% endif %}
     </p>
   </div>
   {% else %}
@@ -928,11 +958,11 @@
   {% endif %}
   {% endif %}
 
-  <!-- D5 已核發類 Agoda 訂票憑證清單 (BookingVoucher) -->
+  <!-- 已核發類 Agoda 訂票憑證清單 -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
     <div class="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
       <div>
-        <h2 class="text-base font-bold text-slate-900">D5 類 Agoda 訂票憑證清單 (BookingVoucher)</h2>
+        <h2 class="text-base font-bold text-slate-900">已核發類 Agoda 訂票憑證清單</h2>
         <span class="text-xs text-slate-500">共 {{ voucher_items|length }} 張官方確認憑證</span>
       </div>
       {% if voucher_items %}
@@ -977,10 +1007,10 @@
   </div>
 
   {% if exceptions %}
-  <!-- D5 訂票異常與處理紀錄表 (BookingException) -->
+  <!-- 訂票異常與處理紀錄表 -->
   <div class="bg-white rounded-2xl border border-rose-200 shadow-xs overflow-hidden">
     <div class="px-6 py-4 border-b border-rose-100 bg-rose-50/50 flex items-center justify-between">
-      <h2 class="text-base font-bold text-rose-950">D5 訂票異常與處理紀錄 (BookingException)</h2>
+      <h2 class="text-base font-bold text-rose-950">訂票異常與處理紀錄</h2>
       <span class="text-xs text-rose-700">共 {{ exceptions|length }} 筆異常紀錄</span>
     </div>
     <div class="divide-y divide-slate-100">
@@ -995,7 +1025,7 @@
         </div>
         <div class="text-slate-600">專員替代方案：{{ ex.alternative_proposal }}</div>
         {% if ex.resolved_at %}
-        <div class="text-slate-400">結案時間：{{ ex.resolved_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</div>
+        <div class="text-slate-400">結案時間：{{ ex.resolved_at|taipei_time('%Y-%m-%d %H:%M:%S') }}（台灣時間）</div>
         {% endif %}
       </div>
       {% endfor %}
@@ -1003,10 +1033,10 @@
   </div>
   {% endif %}
 
-  <!-- D4 金流交易紀錄表 (PaymentTxn) -->
+  <!-- 金流交易紀錄表 -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
     <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-      <h2 class="text-base font-bold text-slate-900">D4 金流交易紀錄明細 (PaymentTxn)</h2>
+      <h2 class="text-base font-bold text-slate-900">金流交易紀錄明細</h2>
       <span class="text-xs text-slate-500">共 {{ txns|length }} 筆交易紀錄</span>
     </div>
     {% if txns %}
@@ -1019,7 +1049,7 @@
             <th class="px-6 py-3">交易金額</th>
             <th class="px-6 py-3">金流參考編號</th>
             <th class="px-6 py-3">狀態</th>
-            <th class="px-6 py-3">交易時間 (UTC)</th>
+            <th class="px-6 py-3">交易時間 (台灣時間)</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -1035,7 +1065,7 @@
                 {{ t.status }}
               </span>
             </td>
-            <td class="px-6 py-3 text-slate-500">{{ t.paid_at.strftime('%Y-%m-%d %H:%M:%S') if t.paid_at else '—' }}
+            <td class="px-6 py-3 text-slate-500">{{ t.paid_at|taipei_time('%Y-%m-%d %H:%M:%S') }}
             </td>
           </tr>
           {% endfor %}
@@ -1043,7 +1073,7 @@
       </table>
     </div>
     {% else %}
-    <p class="px-6 py-6 text-center text-xs text-slate-500">尚無金流交易紀錄，待專員開價且會員付款後寫入 D4。</p>
+    <p class="px-6 py-6 text-center text-xs text-slate-500">尚無金流交易紀錄，待專員開價且會員付款後寫入紀錄。</p>
     {% endif %}
   </div>
 

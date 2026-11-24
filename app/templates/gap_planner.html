@@ -11,9 +11,19 @@
       </a>
       <a href="/" class="text-slate-600 hover:text-slate-900 font-medium">返回首頁</a>
     </div>
-    <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-      DFD 6.0 · 主行程已全額付款解鎖
-    </span>
+    <div class="flex flex-wrap items-center gap-2.5">
+      <a
+        href="/trips/{{ trip.trip_id }}/schedule"
+        target="_blank"
+        rel="noopener"
+        class="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition"
+      >
+        開啟完整行程總表（新視窗）↗
+      </a>
+      <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+        主行程已全額付款解鎖
+      </span>
+    </div>
   </div>
 
   <!-- 頂部說明卡片 -->
@@ -33,7 +43,7 @@
           免費空檔行程規劃 ＋ 景點門票代訂加購（行程 #{{ trip.trip_id }}）
         </h1>
         <p class="text-xs text-slate-600 leading-relaxed">
-          旅遊期間：{{ trip.start_date }} ~ {{ trip.end_date }}。系統已針對每個空檔時段提供 <strong>3 個不同風格的建議方案</strong>，您也可以告訴 Gemini 您的旅行偏好重新推薦；選定免費活動可直接寫入行程表，勾選「需要專員代訂門票」則會送出 DFD 3.0 <strong>ADDON 加購報價單</strong>。
+          旅遊期間：{{ trip.start_date }} ~ {{ trip.end_date }}。系統已針對每個空檔時段提供 <strong>3 個不同風格的建議方案</strong>，您也可以告訴 Gemini 您的旅行偏好重新推薦；選定免費活動可直接寫入行程表，勾選「需要專員代訂門票」即可送出專員報價加購。
         </p>
       </div>
     </div>
@@ -77,7 +87,7 @@
       </p>
     </div>
 
-    <form action="/trips/{{ trip.trip_id }}/gap/suggest" method="post" class="space-y-3">
+    <form id="gap-suggest-form" action="/trips/{{ trip.trip_id }}/gap/suggest" method="post" class="space-y-3">
       <div class="flex flex-col sm:flex-row gap-3">
         <input
           id="gap_preference"
@@ -91,8 +101,9 @@
         />
         {% if is_owner and active_role != 'agent' %}
           <button
+            id="gap-suggest-btn"
             type="submit"
-            class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-xs transition cursor-pointer whitespace-nowrap"
+            class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white text-sm font-bold shadow-xs transition cursor-pointer whitespace-nowrap"
           >
             讓 Gemini 依偏好重新推薦
           </button>
@@ -309,16 +320,16 @@
     {% endif %}
   </form>
 
-  <!-- 3. 景點門票加購詢價 (DFD 6.0 -> DFD 3.0 ADDON) -->
+  <!-- 3. 景點門票加購詢價 -->
   <div class="bg-white rounded-2xl border border-amber-200 shadow-xs p-6 space-y-4">
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
         <span class="inline-block text-[11px] font-bold uppercase tracking-wider text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
-          DFD 6.0 → 3.0 / 4.0 / 5.0 · 景點門票加購結帳與憑證
+          景點門票專員代訂與憑證
         </span>
-        <h2 class="text-lg font-bold text-slate-900 mt-1">景點門票專員代訂加購區（ADDON OrderQuote）</h2>
+        <h2 class="text-lg font-bold text-slate-900 mt-1">景點門票專員代訂加購區</h2>
         <p class="text-xs text-slate-600 mt-0.5">
-          加購訂單完全沿用主行程「專員一口價無訂金報價 → 沿用護照 KYC 一次付清 → 類 Agoda 景點電子憑證 (SPOT)」流程。
+          景點加購訂單同樣享有「專員一口價無訂金報價 → 沿用護照資料一次付清 → SPOT 景點電子憑證」完整保障。
         </p>
       </div>
     </div>
@@ -423,6 +434,15 @@
         }
       });
     });
+
+    const suggestForm = document.getElementById("gap-suggest-form");
+    const suggestBtn = document.getElementById("gap-suggest-btn");
+    if (suggestForm && suggestBtn) {
+      suggestForm.addEventListener("submit", () => {
+        suggestBtn.disabled = true;
+        suggestBtn.textContent = "Gemini 正在依偏好重新推薦中...";
+      });
+    }
   })();
 </script>
 {% endblock %}

@@ -2105,7 +2105,12 @@ def _normalize_gemini_draft(
                 period = str(blk.get("period") or "全天").strip()
                 b_title = str(blk.get("title") or "").strip()
                 b_detail = str(blk.get("detail") or "").strip()
-                if cat not in valid_categories or cat == "空檔":
+                is_gap_text = (
+                    "付款後解鎖" in b_title
+                    or "付款後解鎖" in b_detail
+                    or LOCKED_GAP_DETAIL in b_detail
+                )
+                if cat not in valid_categories or cat == "空檔" or is_gap_text:
                     gap_title = (
                         "賽後自由空檔（付款後解鎖）"
                         if "賽後" in period
@@ -2348,8 +2353,9 @@ def generate_itinerary_draft(
     existing_search_sources: list[dict[str, str]] | None = None,
     existing_espn_meta: dict[str, Any] | None = None,
     structured_targets: list[dict[str, str]] | None = None,
+    use_llm: bool = False,
 ) -> dict[str, Any]:
-    """Fetch live ESPN schedules + ddgs results and generate a structured draft via Gemini or Mock."""
+    """Fetch live ESPN schedules + ddgs results and build draft via rule engine or Gemini."""
     target_count = max(1, min(int(desired_match_count or 2), 6))
     is_cross_continent = bool(
         structured_targets and len({t.get("region") for t in structured_targets if t.get("region")}) > 1
@@ -2405,6 +2411,7 @@ def generate_itinerary_draft(
     tz_taipei = timezone(timedelta(hours=8))
 
     diagnostics: dict[str, Any] = {
+        "planning_engine": "gemini" if use_llm else "rule_engine",
         "gemini_called": False,
         "model": config.GEMINI_MODEL,
         "latency_ms": 0,
@@ -2426,6 +2433,29 @@ def generate_itinerary_draft(
         "is_cross_continent": is_cross_continent,
         "generated_at": datetime.now(tz_taipei).strftime("%Y-%m-%d %H:%M:%S (UTC+8)"),
     }
+
+    if not use_llm:
+        rule_draft = build_mock_draft(
+            league_type=league_type,
+            start_date=start_date,
+            end_date=end_date,
+            need_flight=need_flight,
+            need_hotel=need_hotel,
+            preference=preference,
+            search_sources=search_sources,
+            live_schedules=live_schedules,
+            diagnostics=diagnostics,
+            fallback_reason="",
+            desired_match_count=target_count,
+            locked_matches=locked_matches,
+            custom_instruction=custom_instruction,
+            structured_targets=structured_targets,
+            is_cross_continent=is_cross_continent,
+        )
+        rule_draft["mode"] = "rule_engine"
+        rule_draft["mode_label"] = "規則引擎即時排程 (ESPN)"
+        rule_draft["fallback_reason"] = ""
+        return rule_draft
 
     api_key = config.GEMINI_API_KEY
     if not api_key:

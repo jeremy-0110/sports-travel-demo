@@ -141,11 +141,25 @@ def logout_submit(request: Request):
     return RedirectResponse(url="/", status_code=303)
 
 
+def _safe_next_url(next_url: str) -> str:
+    """Allow only internal relative paths (prevent open redirects on /switch-role)."""
+    cleaned = (next_url or "").strip()
+    if (
+        cleaned.startswith("/")
+        and not cleaned.startswith("//")
+        and "\r" not in cleaned
+        and "\n" not in cleaned
+    ):
+        return cleaned
+    return "/"
+
+
 @router.post("/switch-role")
 def switch_role(
     request: Request,
     role: str = Form(...),
     agent_id: str = Form(DEFAULT_AGENT_ID),
+    next_url: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Switch active UI perspective between member and booking agent (e.g. AG001)."""
@@ -182,4 +196,4 @@ def switch_role(
         request.session["active_role"] = "member"
         set_flash(request, "info", "已切換為【會員視角】")
 
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url=_safe_next_url(next_url), status_code=303)

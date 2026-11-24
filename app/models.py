@@ -37,6 +37,9 @@ class User(Base):
     trip_plans = relationship(
         "TripPlan", back_populates="user", cascade="all, delete-orphan"
     )
+    support_tickets = relationship(
+        "SupportTicket", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Agent(Base):
@@ -120,6 +123,7 @@ class OrderQuote(Base):
         "BookingException", back_populates="order_quote", cascade="all, delete-orphan"
     )
     addon_gap_items = relationship("GapItineraryItem", back_populates="addon_order")
+    support_tickets = relationship("SupportTicket", back_populates="order_quote")
 
 
 class PaymentTxn(Base):
@@ -166,3 +170,45 @@ class BookingException(Base):
     resolved_at = Column(DateTime(timezone=True), nullable=True)
 
     order_quote = relationship("OrderQuote", back_populates="exceptions")
+
+
+class SupportTicket(Base):
+    """Customer support conversation & refund request ticket."""
+
+    __tablename__ = "support_ticket"
+
+    ticket_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("order_quote.order_id"), nullable=True)
+    agent_id = Column(String, ForeignKey("agent.agent_id"), nullable=True)
+    category = Column(String, default="GENERAL", nullable=False)
+    subject = Column(String, nullable=False)
+    status = Column(String, default="OPEN", nullable=False)
+    refund_amount_requested = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    user = relationship("User", back_populates="support_tickets")
+    order_quote = relationship("OrderQuote", back_populates="support_tickets")
+    agent = relationship("Agent")
+    messages = relationship(
+        "SupportMessage",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="SupportMessage.message_id.asc()",
+    )
+
+
+class SupportMessage(Base):
+    """Two-way text messages inside a support ticket conversation."""
+
+    __tablename__ = "support_message"
+
+    message_id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(Integer, ForeignKey("support_ticket.ticket_id"), nullable=False)
+    sender_role = Column(String, nullable=False)
+    sender_name = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    ticket = relationship("SupportTicket", back_populates="messages")

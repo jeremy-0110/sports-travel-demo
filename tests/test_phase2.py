@@ -188,9 +188,18 @@ def test_invalid_date_range_rejected_400(isolated_client):
 def test_create_trip_all_4_supported_leagues_mock_fallback(
     isolated_client, monkeypatch: pytest.MonkeyPatch, league: str
 ):
-    """All 4 supported leagues succeed with automatic Mock fallback when API key is missing."""
+    """All 4 supported leagues build instant rule-engine drafts without invoking Gemini."""
     client, SessionLocal = isolated_client
-    monkeypatch.setattr(config_module, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(config_module, "GEMINI_API_KEY", "unused-during-rule-engine")
+    gemini_calls: list[str] = []
+
+    class ShouldNotCallClient:
+        def __init__(self, **_kwargs):
+            gemini_calls.append("init")
+
+    import google.genai as genai_module
+
+    monkeypatch.setattr(genai_module, "Client", ShouldNotCallClient)
     _login_demo(client)
 
     res = client.post(
@@ -207,7 +216,8 @@ def test_create_trip_all_4_supported_leagues_mock_fallback(
     )
     assert res.status_code == 200
     assert league in res.text
-    assert "展示保底模式 (Mock)" in res.text
+    assert "規則引擎即時排程 (ESPN)" in res.text
+    assert gemini_calls == []
 
     with SessionLocal() as db:
         trip = (
@@ -219,14 +229,15 @@ def test_create_trip_all_4_supported_leagues_mock_fallback(
         assert trip.status == "DRAFT"
         parsed = planner_module.parse_draft_json(trip.llm_draft_json)
         assert parsed is not None
-        assert parsed["mode"] == "mock"
+        assert parsed["mode"] == "rule_engine"
+        assert parsed["diagnostics"]["planning_engine"] == "rule_engine"
         assert len(parsed["days"]) == 5
 
 
 def test_gemini_exception_falls_back_to_mock(
     isolated_client, monkeypatch: pytest.MonkeyPatch
 ):
-    """If Gemini SDK raises an exception (e.g. quota/network), planner falls back cleanly to Mock."""
+    """If Gemini SDK raises when use_llm=True, planner falls back cleanly to Mock (while /trips stays rule-engine)."""
     client, _ = isolated_client
     monkeypatch.setattr(config_module, "GEMINI_API_KEY", "fake-api-key")
 
@@ -241,9 +252,23 @@ def test_gemini_exception_falls_back_to_mock(
     import google.genai as genai_module
 
     monkeypatch.setattr(genai_module, "Client", BrokenClient)
-    _login_demo(client)
 
-    res = client.post(
+    direct_draft = planner_module.generate_itinerary_draft(
+        league_type="歐冠",
+        start_date=date(2026, 10, 20),
+        end_date=date(2026, 10, 23),
+        need_flight=True,
+        need_hotel=True,
+        custom_instruction="幫我多留半天市區散步緩衝",
+        use_llm=True,
+    )
+    assert direct_draft["mode"] == "mock"
+    assert "展示保底模式 (Mock)" in direct_draft["mode_label"]
+    attempted = direct_draft["diagnostics"].get("attempted_models") or []
+    assert any("RuntimeError" in str(a.get("status") or "") for a in attempted)
+
+    _login_demo(client)
+    create_res = client.post(
         "/trips",
         data={
             "league_type": "歐冠",
@@ -253,15 +278,14 @@ def test_gemini_exception_falls_back_to_mock(
         },
         follow_redirects=True,
     )
-    assert res.status_code == 200
-    assert "展示保底模式 (Mock)" in res.text
-    assert "RuntimeError" in res.text
+    assert create_res.status_code == 200
+    assert "規則引擎即時排程 (ESPN)" in create_res.text
 
 
 def test_regenerate_and_confirm_creates_quoting_order(
     isolated_client, monkeypatch: pytest.MonkeyPatch
 ):
-    """Member can regenerate a DRAFT trip and confirm it to create a QUOTING OrderQuote for AG001."""
+    """Regenerate route is removed (404) and confirm creates a QUOTING OrderQuote for AG001."""
     client, SessionLocal = isolated_client
     monkeypatch.setattr(config_module, "GEMINI_API_KEY", "")
     _login_demo(client)
@@ -281,9 +305,8 @@ def test_regenerate_and_confirm_creates_quoting_order(
     assert create_res.status_code == 200
     trip_id = int(str(create_res.url).rstrip("/").split("/")[-1])
 
-    regen_res = client.post(f"/trips/{trip_id}/regenerate", follow_redirects=True)
-    assert regen_res.status_code == 200
-    assert "已重新生成【NBA】行程大架構" in regen_res.text
+    regen_res = client.post(f"/trips/{trip_id}/regenerate", follow_redirects=False)
+    assert regen_res.status_code in (404, 405)
 
     confirm_res = client.post(f"/trips/{trip_id}/confirm", follow_redirects=True)
     assert confirm_res.status_code == 200
@@ -607,10 +630,9 @@ def test_trip_detail_shows_diagnostics_and_live_schedules(
 
 
 def test_gemini_fallback_chain_switches_to_healthy_model(
-    isolated_client, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    """When primary Gemini model fails (e.g. 504), planner switches to healthy fallback model."""
-    client, _ = isolated_client
+    """When primary Gemini model fails (e.g. 504) under use_llm=True, planner switches to healthy fallback model."""
     monkeypatch.setattr(config_module, "GEMINI_API_KEY", "fake-api-key")
     monkeypatch.setattr(config_module, "GEMINI_MODEL", "gemini-4-hydrogen")
     monkeypatch.setattr(
@@ -641,24 +663,22 @@ def test_gemini_fallback_chain_switches_to_healthy_model(
     import google.genai as genai_module
 
     monkeypatch.setattr(genai_module, "Client", SwitchClient)
-    _login_demo(client)
 
-    res = client.post(
-        "/trips",
-        data={
-            "league_type": "歐足五大",
-            "start_date": "2026-11-28",
-            "end_date": "2026-11-30",
-            "preference": "艾佛頓",
-            "need_flight": "true",
-        },
-        follow_redirects=True,
+    draft = planner_module.generate_itinerary_draft(
+        league_type="歐足五大",
+        start_date=date(2026, 11, 28),
+        end_date=date(2026, 11, 30),
+        need_flight=True,
+        need_hotel=False,
+        preference="艾佛頓",
+        custom_instruction="優先看艾佛頓主場賽",
+        desired_match_count=1,
+        use_llm=True,
     )
-    assert res.status_code == 200
-    assert "Gemini 連網規劃 (gemini-3.5-flash-lite)" in res.text
-    assert "模型備援軌跡" in res.text
-    assert "gemini-4-hydrogen" in res.text
-    assert "gemini-3.5-flash-lite (ok)" in res.text
+    assert draft["mode_label"] == "Gemini 連網規劃 (gemini-3.5-flash-lite)"
+    attempts = draft["diagnostics"]["attempted_models"]
+    assert any(a["model"] == "gemini-4-hydrogen" for a in attempts)
+    assert {"model": "gemini-3.5-flash-lite", "status": "ok"} in attempts
 
 
 def test_subleague_and_cologne_translation():
@@ -897,7 +917,7 @@ def test_customize_instant_remove_and_add_matches(
 def test_customize_ai_replan_with_locked_matches_and_instruction(
     isolated_client, monkeypatch: pytest.MonkeyPatch
 ):
-    """Owner can send locked matches and custom instruction for AI replanning."""
+    """Owner can customize locked matches and custom instruction via instant rule engine without calling Gemini."""
     client, SessionLocal = isolated_client
     monkeypatch.setattr(config_module, "GEMINI_API_KEY", "")
     _login_demo(client)
@@ -914,38 +934,18 @@ def test_customize_ai_replan_with_locked_matches_and_instruction(
     )
     trip_id = int(str(create_res.url).rstrip("/").split("/")[-1])
 
-    monkeypatch.setattr(config_module, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config_module, "GEMINI_API_KEY", "unused-during-rule-engine")
     monkeypatch.setattr(config_module, "GEMINI_MODEL", "gemini-3.5-flash-lite")
 
-    captured_prompts: list[str] = []
+    gemini_calls: list[str] = []
 
-    class StructuredModels:
-        def generate_content(self, model, contents, **_kwargs):
-            captured_prompts.append(contents)
-
-            class Resp:
-                text = (
-                    '{"summary": "已依您的指令保留逛街時段並鎖定自選賽事。",'
-                    '"matches": [{"date": "2026-12-11", "matchup": "Dummy", "venue": "Chase Center", "note": "note"}],'
-                    '"flight_suggestion": "直飛建議",'
-                    '"hotel_suggestion": "車站旁飯店",'
-                    '"days": ['
-                    '{"day_number": 1, "date": "2026-12-10", "day_type": "ARRIVAL", "city": "舊金山", "title": "抵達與市區採購", "blocks": [{"period": "下午", "category": "交通", "title": "抵達飯店", "detail": "入住車站旁飯店"}]},'
-                    '{"day_number": 2, "date": "2026-12-11", "day_type": "MATCH_DAY", "city": "舊金山", "title": "勇士主場之夜", "blocks": [{"period": "晚間", "category": "賽事", "title": "NBA 焦點戰", "detail": "Chase Center 看球"}]}'
-                    '],'
-                    '"estimated_budget_twd": 72000}'
-                )
-                usage_metadata = None
-
-            return Resp()
-
-    class StructuredClient:
+    class ShouldNotCallClient:
         def __init__(self, **_kwargs):
-            self.models = StructuredModels()
+            gemini_calls.append("init")
 
     import google.genai as genai_module
 
-    monkeypatch.setattr(genai_module, "Client", StructuredClient)
+    monkeypatch.setattr(genai_module, "Client", ShouldNotCallClient)
 
     replan_res = client.post(
         f"/trips/{trip_id}/customize",
@@ -955,21 +955,23 @@ def test_customize_ai_replan_with_locked_matches_and_instruction(
             ],
             "desired_match_count": "1",
             "custom_instruction": "住宿改靠近車站且比賽前留半天逛街",
-            "action_mode": "ai_replan",
+            "action_mode": "instant",
         },
         follow_redirects=True,
     )
     assert replan_res.status_code == 200
-    assert "Gemini 連網規劃 (gemini-3.5-flash-lite)" in replan_res.text
+    assert "規則引擎即時排程 (ESPN)" in replan_res.text
+    assert "已即時套用 1 場觀賽選擇並重組結構化行程表（0 秒生效）" in replan_res.text
     assert "住宿改靠近車站且比賽前留半天逛街" in replan_res.text
-    assert captured_prompts and "住宿改靠近車站且比賽前留半天逛街" in captured_prompts[0]
+    assert gemini_calls == []
 
     with SessionLocal() as db:
         trip = db.get(TripPlan, trip_id)
         draft = planner_module.parse_draft_json(trip.llm_draft_json)
         assert draft is not None
         assert draft["matches"][0]["matchup"] == "NBA Live Matchup Demo（NBA）"
-        assert draft["days"][1]["blocks"][0]["category"] == "賽事"
+        assert draft["custom_instruction"] == "住宿改靠近車站且比賽前留半天逛街"
+        assert any(blk["category"] == "賽事" for blk in draft["days"][1]["blocks"])
 
 
 def test_api_teams_valid_and_invalid_path(
@@ -1415,7 +1417,7 @@ def test_prepayment_itinerary_has_no_attractions_and_coerces_gemini_attractions(
         assert "景點" not in categories
         assert "空檔" in categories
 
-    # Verify Gemini prompt + output coercion rejects "景點"
+    # Verify Gemini prompt + output coercion rejects "景點" when use_llm=True is invoked directly
     monkeypatch.setattr(config_module, "GEMINI_API_KEY", "fake-key")
     monkeypatch.setattr(config_module, "GEMINI_MODEL", "gemini-3.5-flash-lite")
 
@@ -1450,26 +1452,19 @@ def test_prepayment_itinerary_has_no_attractions_and_coerces_gemini_attractions(
 
     monkeypatch.setattr(genai_module, "Client", AttractionClient)
 
-    gemini_res = client.post(
-        "/trips",
-        data={
-            "league_type": "歐足五大",
-            "start_date": "2026-12-05",
-            "end_date": "2026-12-09",
-            "need_flight": "true",
-            "need_hotel": "true",
-        },
-        follow_redirects=True,
+    g_draft = planner_module.generate_itinerary_draft(
+        league_type="歐足五大",
+        start_date=date(2026, 12, 5),
+        end_date=date(2026, 12, 9),
+        need_flight=True,
+        need_hotel=True,
+        custom_instruction="順便幫我排大英博物館進去",
+        desired_match_count=1,
+        use_llm=True,
     )
-    assert gemini_res.status_code == 200
-    assert "大英博物館深度觀光" not in gemini_res.text
-    assert planner_module.LOCKED_GAP_TITLE in gemini_res.text
-
-    gemini_trip_id = int(str(gemini_res.url).rstrip("/").split("/")[-1])
-    with SessionLocal() as db:
-        g_trip = db.get(TripPlan, gemini_trip_id)
-        g_draft = planner_module.parse_draft_json(g_trip.llm_draft_json)
-        coerced_block = g_draft["days"][0]["blocks"][1]
-        assert coerced_block["category"] == "空檔"
-        assert coerced_block["title"] == planner_module.LOCKED_GAP_TITLE
-        assert coerced_block["detail"] == planner_module.LOCKED_GAP_DETAIL
+    all_titles = [blk["title"] for day in g_draft["days"] for blk in day["blocks"]]
+    assert "大英博物館深度觀光" not in all_titles
+    coerced_block = g_draft["days"][0]["blocks"][1]
+    assert coerced_block["category"] == "空檔"
+    assert coerced_block["title"] == planner_module.LOCKED_GAP_TITLE
+    assert coerced_block["detail"] == planner_module.LOCKED_GAP_DETAIL

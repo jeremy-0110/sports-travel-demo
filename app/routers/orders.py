@@ -311,11 +311,20 @@ def pay_order(
             agent=order.agent,
             txn=txn,
         )
+        if order.order_type == "ADDON":
+            success_detail = (
+                f"景點門票加購訂單 #{order.order_id} 已完成全額付款，"
+                f"系統已派單給專員 {order.agent_id or DEFAULT_AGENT_ID} 核發電子憑證。"
+            )
+        else:
+            success_detail = (
+                f"行程 #{trip.trip_id} 已鎖定並解鎖免費空檔行程規劃權限！"
+            )
         set_flash(
             request,
             "success",
             f"全額付款成功！交易編號 {txn.gateway_ref}，實付金額 NT$ {txn.amount:,}。"
-            f"行程 #{trip.trip_id} 已鎖定並解鎖免費空檔行程權限（Phase 5 開放規劃）。{member_mail['note']}",
+            f"{success_detail}{member_mail['note']}",
         )
     else:
         fail_mail = send_payment_failed_email(

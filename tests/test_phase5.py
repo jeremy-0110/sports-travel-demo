@@ -19,7 +19,7 @@ import app.config as config_module
 import app.database as database_module
 from app.database import get_db, init_db
 from app.main import app
-from app.models import BookingVoucher, GapItineraryItem, OrderQuote, PaymentTxn, TripPlan
+from app.models import BookingException, BookingVoucher, GapItineraryItem, OrderQuote, PaymentTxn, TripPlan
 from app.services import gap_planner as gap_planner_module
 from app.services import mailer as mailer_module
 from app.services import planner as planner_module
@@ -517,3 +517,108 @@ def test_gap_addon_order_end_to_end_quote_pay_reuse_kyc_spot_voucher_and_delete(
         assert db.get(TripPlan, trip_id) is None
         assert db.get(OrderQuote, addon_order_id) is None
         assert db.query(GapItineraryItem).filter(GapItineraryItem.trip_id == trip_id).count() == 0
+
+
+def test_addon_exception_refund_releases_gap_slot_and_preserves_main_trip(isolated_client):
+    """Refunding an ADDON order must keep the main trip LOCKED and release the GapItineraryItem."""
+    client, SessionLocal = isolated_client
+    trip_id, main_order_id = _create_confirmed_trip(client, SessionLocal, league_type="NBA")
+    _pay_main_trip(client, SessionLocal, main_order_id, price=76000)
+
+    assert client.get(f"/trips/{trip_id}/gap").status_code == 200
+    with SessionLocal() as db:
+        draft = planner_module.parse_draft_json(db.get(TripPlan, trip_id).llm_draft_json)
+        slot0 = draft["gap_suggestions"]["slots"][0]
+
+    assert (
+        client.post(
+            f"/trips/{trip_id}/gap/save",
+            data={
+                f"choice__{slot0['slot_key']}": "__CUSTOM__",
+                f"custom__{slot0['slot_key']}": "惡魔島官方渡輪門票",
+                f"addon__{slot0['slot_key']}": "1",
+            },
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    addon_redirect = client.post(f"/trips/{trip_id}/gap/addon-order", follow_redirects=False)
+    addon_order_id = int(addon_redirect.headers["location"].split("/")[-1])
+
+    # Home dashboard surfaces both MAIN_TRIP and ADDON orders + gap shortcut for the member
+    home_page = client.get("/")
+    assert home_page.status_code == 200
+    assert f"加購 #{addon_order_id}" in home_page.text
+    assert "空檔規劃" in home_page.text
+
+    # Agent quotes, member pays ADDON, agent reports exception, member selects REFUND
+    client.post("/switch-role", data={"role": "agent", "agent_id": "AG001"})
+    client.post(f"/orders/{addon_order_id}/quote", data={"quoted_price": "2200"})
+    client.post("/switch-role", data={"role": "member"})
+    client.post(
+        f"/orders/{addon_order_id}/pay",
+        data={"payment_method": "CREDIT_CARD", "simulate_outcome": "SUCCESS"},
+    )
+
+    client.post("/switch-role", data={"role": "agent", "agent_id": "AG001"})
+    client.post(
+        f"/orders/{addon_order_id}/exceptions",
+        data={
+            "reason": "惡魔島預約梯次全數客滿",
+            "alternative_proposal": "可改預約翌日上午船班，或全額退款重新挑選其他空檔活動。",
+        },
+    )
+    with SessionLocal() as db:
+        exc = (
+            db.query(BookingException)
+            .filter(BookingException.order_id == addon_order_id)
+            .first()
+        )
+        assert exc is not None
+        exc_id = exc.exception_id
+
+    client.post("/switch-role", data={"role": "member"})
+    refund_page = client.post(
+        f"/orders/{addon_order_id}/exceptions/{exc_id}/decide",
+        data={"decision": "REFUND"},
+        follow_redirects=True,
+    )
+    assert refund_page.status_code == 200
+    assert "主行程不受影響" in refund_page.text
+    assert "台灣時間" in refund_page.text
+
+    with SessionLocal() as db:
+        assert db.get(TripPlan, trip_id).status == "LOCKED"
+        assert db.get(OrderQuote, addon_order_id).order_status == "REFUNDED"
+        released_item = (
+            db.query(GapItineraryItem)
+            .filter(GapItineraryItem.trip_id == trip_id)
+            .first()
+        )
+        assert released_item is not None
+        assert released_item.addon_order_id is None
+        assert released_item.need_ticket_addon is False
+
+
+def test_switch_role_safe_next_url_stays_on_order_and_blocks_external_redirect(isolated_client):
+    """Role switching preserves relative order/trip URLs and rejects open redirects."""
+    client, SessionLocal = isolated_client
+    trip_id, order_id = _create_confirmed_trip(client, SessionLocal, league_type="MLB")
+
+    stay_agent = client.post(
+        "/switch-role",
+        data={"role": "agent", "agent_id": "AG001", "next_url": f"/orders/{order_id}"},
+        follow_redirects=False,
+    )
+    assert stay_agent.status_code == 303
+    assert stay_agent.headers["location"] == f"/orders/{order_id}"
+
+    for bad_next in ("https://evil.example/phish", "//evil.example/phish", "/orders/1\r\nLocation: http://x"):
+        safe_fallback = client.post(
+            "/switch-role",
+            data={"role": "member", "next_url": bad_next},
+            follow_redirects=False,
+        )
+        assert safe_fallback.status_code == 303
+        assert safe_fallback.headers["location"] == "/"
+

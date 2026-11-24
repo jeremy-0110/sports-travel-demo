@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}完整行程總表（大架構＋小行程）· 行程 #{{ trip.trip_id }} - 體育賽事旅遊規劃與代訂系統{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- 獨立視窗頂部同步與列印列 -->
+  <div class="print:hidden rounded-2xl bg-white border border-slate-200 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+    <div class="flex flex-wrap items-center gap-3 text-xs">
+      <span class="px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-800 font-bold">
+        獨立檢視視窗 · 完整行程總表
+      </span>
+      <span class="text-slate-600">
+        行程 #{{ trip.trip_id }} · {{ trip.league_type }}（{{ trip.start_date }} ~ {{ trip.end_date }}）
+      </span>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onclick="window.location.reload()"
+        class="px-3.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs font-bold transition cursor-pointer"
+      >
+        ↻ 同步最新小行程與憑證
+      </button>
+      <button
+        type="button"
+        onclick="window.print()"
+        class="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
+      >
+        列印 ／ 另存 PDF 行程手冊
+      </button>
+      {% if gap_unlocked %}
+        <a
+          href="/trips/{{ trip.trip_id }}/gap"
+          class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
+        >
+          前往編修空檔小行程 →
+        </a>
+      {% endif %}
+      <a
+        href="/trips/{{ trip.trip_id }}"
+        class="px-3.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold transition"
+      >
+        返回大架構明細
+      </a>
+    </div>
+  </div>
+
+  <!-- 總覽橫幅與關鍵統計 -->
+  <div class="bg-gradient-to-r from-slate-900 via-sky-950 to-indigo-950 text-white rounded-2xl p-6 shadow-sm space-y-5">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1.5">
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="px-2.5 py-0.5 rounded bg-white/15 font-bold">{{ trip.league_type }}</span>
+          <span class="px-2.5 py-0.5 rounded-full bg-emerald-400/20 border border-emerald-300/40 text-emerald-200 font-semibold">
+            {{ trip.status|trip_status_label }}
+          </span>
+          {% if main_order %}
+            <span class="px-2.5 py-0.5 rounded-full bg-sky-400/20 border border-sky-300/40 text-sky-100 font-semibold">
+              主訂單 #{{ main_order.order_id }} · {{ main_order.order_status|order_status_label }}
+            </span>
+          {% endif %}
+        </div>
+        <h1 class="text-2xl font-extrabold">
+          {{ trip.league_type }} 觀賽旅遊完整行程總表（大架構 ＋ 小行程整合）
+        </h1>
+        <p class="text-xs text-slate-300">
+          旅客：{{ trip_owner.full_name if trip_owner else ('User #' ~ trip.user_id) }}
+          · 旅遊日期：{{ trip.start_date }} ~ {{ trip.end_date }}
+          · 本總表整合核心賽事、來回航班、住宿飯店以及付款後自由安排之空檔小行程。
+        </p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+      <div class="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+        <div class="text-slate-300">總旅遊天數</div>
+        <div class="text-xl font-extrabold mt-0.5">{{ draft.days|length if draft and draft.days else ((trip.end_date - trip.start_date).days + 1) }} 天</div>
+      </div>
+      <div class="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+        <div class="text-slate-300">大架構鎖定賽事</div>
+        <div class="text-xl font-extrabold text-amber-300 mt-0.5">{{ draft.matches|length if draft and draft.matches else 0 }} 場</div>
+      </div>
+      <div class="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+        <div class="text-slate-300">已安排空檔小行程</div>
+        <div class="text-xl font-extrabold text-emerald-300 mt-0.5">
+          {{ gap_items|length }} 項
+          <span class="text-[11px] font-normal text-slate-300">（免費 {{ free_gap_count }} / 加購 {{ addon_gap_count }}）</span>
+        </div>
+      </div>
+      <div class="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+        <div class="text-slate-300">已核發官方憑證</div>
+        <div class="text-xl font-extrabold text-sky-300 mt-0.5">{{ voucher_items|length }} 張</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主體：左側逐日整合時間軸 + 右側小行程與憑證速查 -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+    <div class="lg:col-span-2 space-y-4">
+      <h2 class="text-base font-bold text-slate-900">逐日大架構與小行程整合時間軸</h2>
+
+      {% if draft and draft.days %}
+        {% for day in draft.days %}
+          {% set dtype = day.day_type or 'EXPLORE' %}
+          <div class="bg-white rounded-2xl border {% if dtype == 'MATCH_DAY' %}border-indigo-200{% elif dtype == 'ARRIVAL' %}border-sky-200{% elif dtype == 'DEPARTURE' %}border-amber-200{% else %}border-slate-200{% endif %} shadow-xs overflow-hidden break-inside-avoid">
+            <div class="px-5 py-3 flex flex-wrap items-center justify-between gap-2 {% if dtype == 'MATCH_DAY' %}bg-indigo-50/80 border-b border-indigo-100{% elif dtype == 'ARRIVAL' %}bg-sky-50/80 border-b border-sky-100{% elif dtype == 'DEPARTURE' %}bg-amber-50/80 border-b border-amber-100{% else %}bg-slate-50 border-b border-slate-200{% endif %}">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="px-2.5 py-0.5 rounded-md text-xs font-bold {% if dtype == 'MATCH_DAY' %}bg-indigo-600 text-white{% elif dtype == 'ARRIVAL' %}bg-sky-600 text-white{% elif dtype == 'DEPARTURE' %}bg-amber-600 text-white{% else %}bg-slate-800 text-white{% endif %}">
+                  Day {{ day.day_number }}
+                </span>
+                <span class="text-xs font-semibold text-slate-600">{{ day.date }}</span>
+                <h3 class="text-sm font-bold text-slate-900">{{ day.title }}</h3>
+              </div>
+              {% if day.city %}
+                <span class="text-xs font-medium text-slate-500">{{ day.city }}</span>
+              {% endif %}
+            </div>
+
+            <div class="divide-y divide-slate-100">
+              {% if day.blocks %}
+                {% for blk in day.blocks %}
+                  {% set slot_key = day.day_number ~ '::' ~ blk.period %}
+                  {% set is_gap_block = (blk.category == '空檔') or ('付款後解鎖' in (blk.title or '')) or ('全額付款完成後' in (blk.detail or '')) %}
+                  {% set saved_gap = gap_lookup.get(slot_key) if is_gap_block else none %}
+                  <div class="px-5 py-3.5 flex flex-col sm:flex-row sm:items-start gap-3 {% if saved_gap %}bg-emerald-50/40{% endif %}">
+                    <div class="sm:w-28 shrink-0 flex sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                      <span class="text-xs font-bold text-slate-700">{{ blk.period }}</span>
+                      {% if saved_gap %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold {% if saved_gap.need_ticket_addon %}bg-amber-100 text-amber-900{% else %}bg-emerald-100 text-emerald-800{% endif %}">
+                          {{ '小行程 · 加購' if saved_gap.need_ticket_addon else '小行程 · 免費' }}
+                        </span>
+                      {% elif is_gap_block %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-600 border border-dashed border-slate-300">
+                          {{ '待安排空檔' if gap_unlocked else '🔒 付款後解鎖' }}
+                        </span>
+                      {% elif blk.category == '賽事' %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-800">大架構 · 賽事</span>
+                      {% elif blk.category == '交通' %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">大架構 · 交通</span>
+                      {% elif blk.category == '住宿' %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-teal-100 text-teal-800">大架構 · 住宿</span>
+                      {% else %}
+                        <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-600">
+                          {{ blk.category }}
+                        </span>
+                      {% endif %}
+                    </div>
+
+                    <div class="flex-1 text-xs space-y-1">
+                      {% if saved_gap %}
+                        <div class="text-sm font-bold text-emerald-950">{{ saved_gap.activity_name }}</div>
+                        {% if saved_gap.need_ticket_addon %}
+                          {% set ao = addon_order_map.get(saved_gap.addon_order_id) if saved_gap.addon_order_id else none %}
+                          {% set sv = spot_voucher_by_name.get(saved_gap.activity_name) %}
+                          <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                            {% if ao %}
+                              <a href="/orders/{{ ao.order_id }}" class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold hover:underline">
+                                加購訂單 #{{ ao.order_id }} · {{ ao.order_status|order_status_label }}
+                              </a>
+                            {% else %}
+                              <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                                已勾選專員代訂（待送出詢價）
+                              </span>
+                            {% endif %}
+                            {% if sv %}
+                              <code class="px-2 py-0.5 rounded bg-amber-50 border border-amber-300 font-mono font-bold text-amber-900">
+                                憑證碼 {{ sv.voucher.booking_code }}
+                              </code>
+                            {% endif %}
+                          </div>
+                        {% else %}
+                          <div class="text-emerald-700 font-medium">自由行免費安排活動（已寫入個人行程表）</div>
+                        {% endif %}
+                      {% elif is_gap_block and gap_unlocked %}
+                        <div class="text-sm font-semibold text-slate-700">自由彈性空檔（尚未安排小行程）</div>
+                        <div class="text-slate-500 flex flex-wrap items-center gap-2">
+                          <span>目前保留彈性自由時間，可隨時前往空檔規劃挑選 Gemini 推薦景點或維持自由休息。</span>
+                          {% if is_owner and active_role != 'agent' %}
+                            <a href="/trips/{{ trip.trip_id }}/gap" class="text-emerald-700 hover:underline font-semibold print:hidden">前往安排此時段 →</a>
+                          {% endif %}
+                        </div>
+                      {% else %}
+                        <div class="text-sm font-semibold text-slate-900">{{ blk.title }}</div>
+                        {% if blk.detail and blk.detail != blk.title %}
+                          <p class="text-slate-500">{{ blk.detail }}</p>
+                        {% endif %}
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+          此行程尚未產生結構化每日大架構內容。
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 右側：即時小行程清單 + 機酒大架構 + 憑證確認碼速查 -->
+    <div class="space-y-4 lg:sticky lg:top-6">
+      <div class="bg-white rounded-2xl border border-emerald-200 shadow-xs p-5 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-sm font-bold text-emerald-950">我的空檔小行程清單（{{ gap_items|length }}）</h2>
+          {% if gap_unlocked %}
+            <a href="/trips/{{ trip.trip_id }}/gap" class="text-xs font-bold text-emerald-700 hover:underline print:hidden">
+              編修 →
+            </a>
+          {% endif %}
+        </div>
+
+        {% if gap_items %}
+          <ul class="space-y-2 text-xs">
+            {% for gi in gap_items %}
+              <li class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-bold text-slate-800">Day {{ gi.day_number }} · {{ gi.time_slot }}</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold {% if gi.need_ticket_addon %}bg-amber-100 text-amber-800{% else %}bg-emerald-100 text-emerald-800{% endif %}">
+                    {{ '代訂門票' if gi.need_ticket_addon else '免費活動' }}
+                  </span>
+                </div>
+                <div class="font-semibold text-slate-900">{{ gi.activity_name }}</div>
+                {% if gi.addon_order_id %}
+                  <a href="/orders/{{ gi.addon_order_id }}" class="inline-block text-[11px] text-indigo-700 hover:underline font-medium">
+                    關聯加購單 #{{ gi.addon_order_id }} →
+                  </a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% elif gap_unlocked %}
+          <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3.5 text-xs text-emerald-900 space-y-2">
+            <p>您已完成主行程付款，尚未選擇空檔小行程！可隨時前往挑選 Gemini 推薦方案。</p>
+            <a href="/trips/{{ trip.trip_id }}/gap" class="inline-block font-bold text-emerald-800 hover:underline print:hidden">
+              立即挑選空檔行程 →
+            </a>
+          </div>
+        {% else %}
+          <p class="text-xs text-slate-500">主行程完成全額付款後，系統將自動解鎖空檔小行程規劃與加購。</p>
+        {% endif %}
+      </div>
+
+      {% if draft %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-3 text-xs">
+          <h2 class="text-sm font-bold text-slate-900">大架構核心配置</h2>
+          <div class="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-1">
+            <div class="font-bold text-slate-700">航班建議</div>
+            <p class="text-slate-600">{{ draft.flight_suggestion }}</p>
+          </div>
+          <div class="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-1">
+            <div class="font-bold text-slate-700">住宿區域建議</div>
+            <p class="text-slate-600">{{ draft.hotel_suggestion }}</p>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="bg-white rounded-2xl border border-indigo-200 shadow-xs p-5 space-y-3 text-xs">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-sm font-bold text-slate-900">已核發確認憑證代碼 ({{ voucher_items|length }})</h2>
+          {% if main_order and voucher_items %}
+            <a href="/orders/{{ main_order.order_id }}/vouchers" class="font-bold text-indigo-700 hover:underline print:hidden">
+              憑證頁 →
+            </a>
+          {% endif %}
+        </div>
+        {% if voucher_items %}
+          <ul class="space-y-2">
+            {% for vi in voucher_items %}
+              <li class="rounded-xl bg-indigo-50/60 border border-indigo-100 px-3 py-2 space-y-0.5">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-bold text-indigo-900">{{ vi.meta.badge }}</span>
+                  <code class="font-mono font-bold text-slate-900">{{ vi.voucher.booking_code }}</code>
+                </div>
+                <div class="text-slate-600 truncate">{{ vi.detail.title }}</div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-slate-500">尚未核發官方憑證，待付款及專員開票後會自動同步於此。</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

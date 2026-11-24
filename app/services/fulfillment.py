@@ -926,6 +926,16 @@ def resolve_booking_exception(
         order.trip_plan.status = "CANCELLED"
         db.commit()
         db.refresh(order.trip_plan)
+    elif order.order_type == "ADDON":
+        linked_items = (
+            db.query(GapItineraryItem)
+            .filter(GapItineraryItem.addon_order_id == order.order_id)
+            .all()
+        )
+        for item in linked_items:
+            item.addon_order_id = None
+            item.need_ticket_addon = False
+        db.commit()
     db.refresh(exc)
     db.refresh(order)
     return exc, refund_txn
